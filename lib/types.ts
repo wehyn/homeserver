@@ -62,3 +62,23 @@ export type MemorySnapshot = {
   warnings: string[];
   updatedAt: string;
 };
+
+export type CpuProcess = MemoryProcess & {
+  cpuPercent: number;
+};
+
+export type ProcessorSnapshot = {
+  cpuPercent: number;
+  cpuCores: number;
+  loadAverage: {
+    one: number;
+    five: number;
+    fifteen: number;
+  };
+  processes: CpuProcess[];
+  sampling: boolean;
+  partial: boolean;
+  omittedCount: number;
+  warnings: string[];
+  updatedAt: string;
+};
