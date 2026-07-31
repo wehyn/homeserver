@@ -20,7 +20,7 @@ export async function GET() {
     uptime: formatUptime(os.uptime()),
     cpu,
     cpuCores: os.cpus().length,
-    memory: Math.round((memoryUsed / totalMemory) * 100),
+    memory: roundPercent((memoryUsed / totalMemory) * 100),
     memoryUsed: formatBytes(memoryUsed),
     memoryTotal: formatBytes(totalMemory),
     storage: storage.usedPercent,
@@ -44,7 +44,7 @@ async function getCpuUsage() {
   const totalDelta = next.total - baseline.total;
   const idleDelta = next.idle - baseline.idle;
   if (totalDelta <= 0) return 0;
-  return Math.min(100, Math.max(0, Math.round(((totalDelta - idleDelta) / totalDelta) * 100)));
+  return roundPercent(Math.min(100, Math.max(0, ((totalDelta - idleDelta) / totalDelta) * 100)));
 }
 
 function readCpuTimes(): CpuTimes {
@@ -64,8 +64,12 @@ function getStorageUsage() {
     totalBytes,
     availableBytes,
     usedBytes,
-    usedPercent: totalBytes ? Math.round((usedBytes / totalBytes) * 100) : 0,
+    usedPercent: totalBytes ? roundPercent((usedBytes / totalBytes) * 100) : 0,
   };
+}
+
+function roundPercent(value: number) {
+  return Number(value.toFixed(2));
 }
 
 function formatBytes(bytes: number) {
