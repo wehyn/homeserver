@@ -12,10 +12,13 @@ export async function GET(request: Request) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 4500);
     const started = Date.now();
-    const response = await fetch(target, { method: "GET", cache: "no-store", signal: controller.signal });
-    clearTimeout(timeout);
-    const elapsed = Date.now() - started;
-    return NextResponse.json({ status: response.ok ? (elapsed > 1800 ? "degraded" : "online") : "degraded", latency: elapsed });
+    try {
+      const response = await fetch(target, { method: "GET", cache: "no-store", signal: controller.signal });
+      const elapsed = Date.now() - started;
+      return NextResponse.json({ status: response.ok ? (elapsed > 1800 ? "degraded" : "online") : "degraded", latency: elapsed });
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch {
     return NextResponse.json({ status: "offline" });
   }
