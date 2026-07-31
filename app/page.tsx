@@ -52,7 +52,7 @@ function StatCard({ icon: Icon, label, value, detail, progress, tone }: { icon: 
 
 export default function Home() {
   const [apps, setApps] = useState<ManagedApp[]>(seedApps);
-  const [overview, setOverview] = useState<ServerOverview>({ uptime: "12d 6h", cpu: 8, memory: 42, storage: 34, network: "Local network" });
+  const [overview, setOverview] = useState<ServerOverview>({ uptime: "—", cpu: 0, cpuCores: 0, memory: 0, memoryUsed: "—", memoryTotal: "—", storage: 0, storageUsed: "—", storageAvailable: "—", storageTotal: "—", network: "Local network", updatedAt: "" });
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All apps");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -60,6 +60,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const appsRef = useRef(apps);
@@ -67,8 +68,25 @@ export default function Home() {
 
   useEffect(() => {
     fetch("/api/apps").then((res) => res.json()).then((data) => data.apps && setApps(data.apps)).catch(() => undefined);
-    fetch("/api/overview").then((res) => res.json()).then(setOverview).catch(() => undefined);
   }, []);
+
+  const refreshOverview = useCallback(async () => {
+    setOverviewRefreshing(true);
+    try {
+      const response = await fetch("/api/overview", { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) return;
+      const data = await response.json() as ServerOverview;
+      setOverview(data);
+    } finally {
+      setOverviewRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshOverview();
+    const interval = window.setInterval(() => void refreshOverview(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [refreshOverview]);
 
   const refreshHealth = useCallback(async () => {
     const checkedApps = appsRef.current.filter((app) => app.healthUrl);
@@ -124,10 +142,10 @@ export default function Home() {
       <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div><div className="profile-row"><div className="profile-avatar">D</div><div><strong>Dei</strong><small>Administrator</small></div><MoreHorizontal size={17} className="muted" /></div></div>
     </aside>
     <section className="content">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Health checks · 30 sec{lastCheckedAt ? ` · ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span><button className="icon-button" onClick={() => void refreshHealth()} title="Check service health now" aria-label="Check service health now"><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Live metrics · 30 sec{overview.updatedAt ? ` · ${new Date(overview.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}{lastCheckedAt ? ` · health ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">Friday, July 31, 2026 <span className="eyebrow-line" /></p><h1>Good evening, Dei <span className="wave">✦</span></h1><p className="subheading">Your private corner of the internet, all in one place.</p></div><div className="welcome-actions"><button className="button subtle" onClick={() => setSettingsOpen(true)}><Settings2 size={16} />Customize</button><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
-        <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail="8 cores · healthy" progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail="312 GB of 1 TB" progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail="6.7 GB of 16 GB" progress={overview.memory} tone="blue" /></section>
+        <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail={`${overview.cpuCores || "—"} logical cores · live`} progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail={`${overview.storageUsed} of ${overview.storageTotal}`} progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail={`${overview.memoryUsed} of ${overview.memoryTotal}`} progress={overview.memory} tone="blue" /></section>
         <section className="apps-section"><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{apps.length}</span></div><p>Everything you run, ready when you are.</p></div><button className="view-all" onClick={() => setCategory("All apps")}>View all <ArrowUpRight size={15} /></button></div>
           <div className="toolbar"><div className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." /><kbd>⌘ K</kbd></div><div className="filters">{categories.map((item) => <button key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" />}</button>)}</div></div>
           <AnimatePresence mode="wait" initial={false}>
@@ -139,7 +157,7 @@ export default function Home() {
             </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
           </AnimatePresence>
         </section>
-        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Latest changes across your server</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><ActivityRow icon={<Power size={16} />} tone="green" title="Jellyfin is back online" time="Just now" /><ActivityRow icon={<Zap size={16} />} tone="purple" title="System backup completed" time="24 minutes ago" /><ActivityRow icon={<ShieldCheck size={16} />} tone="blue" title="AdGuard blocked 1,248 requests" time="2 hours ago" /></div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3><p>Across your connected drives</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><div className="storage-visual"><div className="donut"><div><strong>34%</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot green-dot" />System <b>86 GB</b></div><div><span className="legend-dot blue-dot" />Media <b>172 GB</b></div><div><span className="legend-dot gray-dot" />Available <b>688 GB</b></div></div></div></div></section>
+        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Latest changes across your server</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><ActivityRow icon={<Power size={16} />} tone="green" title="Jellyfin is back online" time="Just now" /><ActivityRow icon={<Zap size={16} />} tone="purple" title="System backup completed" time="24 minutes ago" /><ActivityRow icon={<ShieldCheck size={16} />} tone="blue" title="AdGuard blocked 1,248 requests" time="2 hours ago" /></div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3><p>Filesystem containing Nimbus data</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><div className="storage-visual"><div className="donut" style={{ background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` }}><div><strong>{overview.storage}%</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{overview.storageUsed}</b></div><div><span className="legend-dot gray-dot" />Available <b>{overview.storageAvailable}</b></div><div><span className="legend-dot blue-dot" />Total <b>{overview.storageTotal}</b></div></div></div></div></section>
         <footer><span>© 2026 Nimbus</span><span className="footer-separator" /><span>Private by design</span><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
       </div>
     </section>

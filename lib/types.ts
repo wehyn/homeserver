@@ -20,7 +20,14 @@ export type ManagedApp = {
 export type ServerOverview = {
   uptime: string;
   cpu: number;
+  cpuCores: number;
   memory: number;
+  memoryUsed: string;
+  memoryTotal: string;
   storage: number;
+  storageUsed: string;
+  storageAvailable: string;
+  storageTotal: string;
   network: string;
+  updatedAt: string;
 };
