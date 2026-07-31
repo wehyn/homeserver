@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:agent": "tsc -p agent/tsconfig.json",
     "start": "next start",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test agent/*.test.ts"
   },
   "dependencies": {
     "framer-motion": "^12.43.0",

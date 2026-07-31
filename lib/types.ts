@@ -41,3 +41,24 @@ export type ServerOverview = {
   network: string;
   updatedAt: string;
 };
+
+export type MemoryProcess = {
+  pid: number;
+  name: string;
+  command: string;
+  user: string;
+  rssBytes: number;
+  memoryPercent: number;
+};
+
+export type MemorySnapshot = {
+  totalBytes: number;
+  usedBytes: number;
+  availableBytes: number;
+  usedPercent: number;
+  processes: MemoryProcess[];
+  partial: boolean;
+  omittedCount: number;
+  warnings: string[];
+  updatedAt: string;
+};

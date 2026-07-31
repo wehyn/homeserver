@@ -1,0 +1,16 @@
+FROM node:24-alpine AS builder
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci
+COPY agent ./agent
+RUN npm run build:agent
+
+FROM node:24-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup -S nimbus && adduser -S nimbus -G nimbus
+COPY --from=builder --chown=nimbus:nimbus /app/agent/package.json ./agent/package.json
+COPY --from=builder --chown=nimbus:nimbus /app/agent/dist ./agent/dist
+USER nimbus
+EXPOSE 8787
+CMD ["node", "agent/dist/process-agent.js"]
