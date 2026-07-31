@@ -7,10 +7,31 @@ services:
       - "3000:3000"
     environment:
       DATABASE_PATH: /app/data/nimbus.db
+      MEMORY_AGENT_URL: http://metrics-agent:8787
+      MEMORY_AGENT_TOKEN: ${MEMORY_AGENT_TOKEN:-}
     volumes:
       - nimbus-data:/app/data
       # Uncomment to enable future Docker Compose discovery.
       # - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  metrics-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.metrics-agent
+    container_name: nimbus-metrics-agent
+    restart: unless-stopped
+    environment:
+      AGENT_PORT: 8787
+      MEMORY_AGENT_TOKEN: ${MEMORY_AGENT_TOKEN:-}
+    volumes:
+      - type: bind
+        source: /proc
+        target: /host/proc
+        read_only: true
+      - type: bind
+        source: /etc/passwd
+        target: /host/etc/passwd
+        read_only: true
 
 volumes:
   nimbus-data:

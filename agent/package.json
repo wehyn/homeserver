@@ -1,0 +1,5 @@
+{
+  "name": "nimbus-metrics-agent",
+  "private": true,
+  "type": "module"
+}
