@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import Link from "next/link";
 import {
   Activity, Check, ChevronDown, Cloud, Cpu, Database,
   ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
@@ -42,12 +43,13 @@ function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
 
 function StatusDot({ status }: { status: AppStatus }) { return <span className={`status-dot status-${status}`} aria-label={statusCopy[status]} />; }
 
-function StatCard({ icon: Icon, label, value, detail, progress, tone }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string }) {
-  return <div className="stat-card">
+function StatCard({ icon: Icon, label, value, detail, progress, tone, href }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string; href?: string }) {
+  const content = <>
     <div className="stat-card-top"><span className={`stat-icon ${tone}`}><Icon size={16} /></span><span>{label}</span></div>
     <div className="stat-value">{value}</div><div className="stat-detail">{detail}</div>
     {progress !== undefined && <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>}
-  </div>;
+  </>;
+  return href ? <Link className="stat-card stat-card-link" href={href} aria-label={`View ${label.toLowerCase()} details`}>{content}</Link> : <div className="stat-card">{content}</div>;
 }
 
 export default function Home() {
@@ -169,7 +171,7 @@ export default function Home() {
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Live metrics · 30 sec{overview.updatedAt ? ` · ${new Date(overview.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}{lastCheckedAt ? ` · health ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div><div className="welcome-actions"><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
-        <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail={`${overview.cpuCores || "—"} logical cores · live`} progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail={`${overview.storageUsed} of ${overview.storageTotal}`} progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail={`${overview.memoryUsed} of ${overview.memoryTotal}`} progress={overview.memory} tone="blue" /></section>
+        <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail={`${overview.cpuCores || "—"} logical cores · live`} progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail={`${overview.storageUsed} of ${overview.storageTotal}`} progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail={`${overview.memoryUsed} of ${overview.memoryTotal}`} progress={overview.memory} tone="blue" href="/memory" /></section>
         <section className="apps-section"><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{apps.length}</span></div></div></div>
           <div className="toolbar"><div className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." /><kbd>⌘ K</kbd></div><div className="filters">{categories.map((item) => <button key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" />}</button>)}</div></div>
           <AnimatePresence mode="wait" initial={false}>
