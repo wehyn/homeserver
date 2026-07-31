@@ -89,11 +89,12 @@ export default function Home() {
   }, [refreshOverview]);
 
   const refreshHealth = useCallback(async () => {
-    const checkedApps = appsRef.current.filter((app) => app.healthUrl);
+    const checkedApps = appsRef.current.filter((app) => app.healthUrl || app.url);
     if (!checkedApps.length) return;
     setRefreshing(true);
     const results = await Promise.all(checkedApps.map(async (app) => {
-      const response = await fetch(`/api/health?url=${encodeURIComponent(app.healthUrl || "")}`).catch(() => null);
+      const healthTarget = app.healthUrl || app.url;
+      const response = await fetch(`/api/health?url=${encodeURIComponent(healthTarget)}`).catch(() => null);
       const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
       return { id: app.id, status: result.status as AppStatus };
     }));
@@ -109,7 +110,7 @@ export default function Home() {
     void refreshHealth();
     const interval = window.setInterval(() => void refreshHealth(), 30_000);
     return () => window.clearInterval(interval);
-  }, [refreshHealth, apps.map((app) => `${app.id}:${app.healthUrl}`).join("|")]);
+  }, [refreshHealth, apps.map((app) => `${app.id}:${app.healthUrl || app.url}`).join("|")]);
 
   const visibleApps = useMemo(() => apps.filter((app) => {
     const matchQuery = `${app.name} ${app.description} ${app.category}`.toLowerCase().includes(query.toLowerCase());
