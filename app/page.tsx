@@ -1,0 +1,144 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity, ArrowUpRight, Check, ChevronDown, CircleHelp, Cloud, Cpu, Database,
+  ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
+  Network, Pencil, Plus, Power, Search, Settings2, ShieldCheck, Sparkles, Star,
+  Trash2, X, Zap,
+} from "lucide-react";
+import { seedApps } from "@/lib/seed";
+import type { AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
+
+const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
+
+const iconPalette: Record<string, React.ComponentType<React.ComponentProps<typeof Cloud>>> = {
+  "crafty-controller": GamepadIcon,
+  "cloud-drive": Cloud,
+  immich: Sparkles,
+  jellyfin: PlayIcon,
+  "adguard-home": ShieldCheck,
+  "uptime-kuma": Activity,
+  paperless: FolderKanban,
+  router: Network,
+};
+
+function GamepadIcon(props: React.ComponentProps<typeof Cloud>) { return <Gamepad2 {...props} />; }
+function PlayIcon(props: React.ComponentProps<typeof Cloud>) { return <Play {...props} />; }
+function Gamepad2(props: React.ComponentProps<typeof Cloud>) { return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6.4 9.2h11.2a4.6 4.6 0 0 1 4.3 6.2l-1 2.8a2.5 2.5 0 0 1-4.4.5l-1.7-2.2H9.2l-1.7 2.2a2.5 2.5 0 0 1-4.4-.5l-1-2.8a4.6 4.6 0 0 1 4.3-6.2Z"/><path d="M7 12v4m-2-2h4m8-1h.01m2 2h.01"/></svg>; }
+function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m10 8 5 4-5 4V8Z"/></svg>; }
+
+const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
+
+function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
+  const Icon = iconPalette[app.id] || LayoutGrid;
+  return <div className={`app-icon ${large ? "app-icon-large" : ""}`} style={{ "--app-color": app.color } as React.CSSProperties}>
+    {app.icon ? <img src={app.icon} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} />}
+    {app.icon && <Icon className="icon-fallback" size={large ? 27 : 22} strokeWidth={1.8} />}
+  </div>;
+}
+
+function StatusDot({ status }: { status: AppStatus }) { return <span className={`status-dot status-${status}`} aria-label={statusCopy[status]} />; }
+
+function StatCard({ icon: Icon, label, value, detail, progress, tone }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string }) {
+  return <div className="stat-card">
+    <div className="stat-card-top"><span className={`stat-icon ${tone}`}><Icon size={16} /></span><span>{label}</span><MoreHorizontal size={16} className="muted" /></div>
+    <div className="stat-value">{value}</div><div className="stat-detail">{detail}</div>
+    {progress !== undefined && <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>}
+  </div>;
+}
+
+export default function Home() {
+  const [apps, setApps] = useState<ManagedApp[]>(seedApps);
+  const [overview, setOverview] = useState<ServerOverview>({ uptime: "12d 6h", cpu: 8, memory: 42, storage: 34, network: "Local network" });
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("All apps");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [editing, setEditing] = useState<ManagedApp | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [savedNotice, setSavedNotice] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/apps").then((res) => res.json()).then((data) => data.apps && setApps(data.apps)).catch(() => undefined);
+    fetch("/api/overview").then((res) => res.json()).then(setOverview).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const checkedApps = apps.filter((app) => app.healthUrl);
+    if (!checkedApps.length) return;
+    let cancelled = false;
+    Promise.all(checkedApps.map(async (app) => {
+      const response = await fetch(`/api/health?url=${encodeURIComponent(app.healthUrl || "")}`).catch(() => null);
+      const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
+      return { id: app.id, status: result.status as AppStatus };
+    })).then((results) => {
+      if (cancelled) return;
+      setApps((current) => current.map((app) => results.find((result) => result.id === app.id) ? { ...app, status: results.find((result) => result.id === app.id)!.status } : app));
+    });
+    return () => { cancelled = true; };
+  }, [apps.map((app) => `${app.id}:${app.healthUrl}`).join("|")]);
+
+  const visibleApps = useMemo(() => apps.filter((app) => {
+    const matchQuery = `${app.name} ${app.description} ${app.category}`.toLowerCase().includes(query.toLowerCase());
+    const matchCategory = category === "All apps" || (category === "Favorites" ? app.isFavorite : app.category === category);
+    return app.isVisible && matchQuery && matchCategory;
+  }), [apps, category, query]);
+
+  const onlineCount = apps.filter((app) => app.status === "online").length;
+
+  async function saveApp(app: ManagedApp) {
+    setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? app : item) : [...current, app]);
+    await fetch("/api/apps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(app) }).catch(() => undefined);
+    setEditing(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2200);
+  }
+
+  async function deleteApp(id: string) {
+    setApps((current) => current.filter((app) => app.id !== id));
+    await fetch("/api/apps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => undefined);
+  }
+
+  return <main className="shell">
+    <div className="ambient ambient-one" /><div className="ambient ambient-two" />
+    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span><span className="brand-beta">BETA</span></div>
+      <div className="server-switcher"><div className="server-avatar">H</div><div><strong>Home server</strong><small>Online · 192.168.1.31</small></div><ChevronDown size={15} /></div>
+      <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><button className="nav-item" onClick={() => { setCategory("All apps"); setSidebarOpen(false); }}><GridIcon />All applications<span className="nav-count">{apps.length}</span></button><button className="nav-item" onClick={() => { setCategory("Favorites"); setSidebarOpen(false); }}><Star size={17} />Favorites<span className="nav-count">{apps.filter((app) => app.isFavorite).length}</span></button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button><button className="nav-item"><CircleHelp size={17} />Help & docs</button></nav>
+      <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div><div className="profile-row"><div className="profile-avatar">D</div><div><strong>Dei</strong><small>Administrator</small></div><MoreHorizontal size={17} className="muted" /></div></div>
+    </aside>
+    <section className="content">
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Live sync</span><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
+      <div className="main-inner">
+        <section className="welcome-row"><div><p className="eyebrow">Friday, July 31, 2026 <span className="eyebrow-line" /></p><h1>Good evening, Dei <span className="wave">✦</span></h1><p className="subheading">Your private corner of the internet, all in one place.</p></div><div className="welcome-actions"><button className="button subtle" onClick={() => setSettingsOpen(true)}><Settings2 size={16} />Customize</button><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
+        <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail="8 cores · healthy" progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail="312 GB of 1 TB" progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail="6.7 GB of 16 GB" progress={overview.memory} tone="blue" /></section>
+        <section className="apps-section"><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{apps.length}</span></div><p>Everything you run, ready when you are.</p></div><button className="view-all" onClick={() => setCategory("All apps")}>View all <ArrowUpRight size={15} /></button></div>
+          <div className="toolbar"><div className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." /><kbd>⌘ K</kbd></div><div className="filters">{categories.map((item) => <button key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" />}</button>)}</div></div>
+          {visibleApps.length ? <div className="app-grid">{visibleApps.map((app) => <AppCard key={app.id} app={app} onEdit={() => { setEditing(app); setSettingsOpen(true); }} />)}<button className="add-card" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><span><Plus size={21} /></span><strong>Add application</strong><small>Connect a new service</small></button></div> : <div className="empty-state"><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></div>}
+        </section>
+        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Latest changes across your server</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><ActivityRow icon={<Power size={16} />} tone="green" title="Jellyfin is back online" time="Just now" /><ActivityRow icon={<Zap size={16} />} tone="purple" title="System backup completed" time="24 minutes ago" /><ActivityRow icon={<ShieldCheck size={16} />} tone="blue" title="AdGuard blocked 1,248 requests" time="2 hours ago" /></div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3><p>Across your connected drives</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><div className="storage-visual"><div className="donut"><div><strong>34%</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot green-dot" />System <b>86 GB</b></div><div><span className="legend-dot blue-dot" />Media <b>172 GB</b></div><div><span className="legend-dot gray-dot" />Available <b>688 GB</b></div></div></div></div></section>
+        <footer><span>© 2026 Nimbus</span><span className="footer-separator" /><span>Private by design</span><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
+      </div>
+    </section>
+    {settingsOpen && <SettingsPanel apps={apps} editing={editing} onClose={() => { setSettingsOpen(false); setEditing(null); }} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} />}
+    {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
+  </main>;
+}
+
+function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
+  return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}><div className="app-card-top"><span className="category-label">{app.category}</span><button className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} /></button></div><a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" />}</div><p>{app.description}</p></div></a><div className="app-card-bottom"><span className="status-label"><StatusDot status={app.status} />{statusCopy[app.status]}</span><span className="launch-link">Open <ExternalLink size={13} /></span></div></article>;
+}
+
+function ActivityRow({ icon, tone, title, time }: { icon: React.ReactNode; tone: string; title: string; time: string }) { return <div className="activity-row"><span className={`activity-icon ${tone}`}>{icon}</span><div><strong>{title}</strong><small>{time}</small></div><ChevronDown size={14} className="activity-arrow" /> </div>; }
+
+function SettingsPanel({ apps, editing, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+  return <div className="panel-backdrop" onClick={onClose}><aside className="settings-panel" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2>Dashboard settings</h2></div><button className="close-button" onClick={onClose}><X size={19} /></button></div>{editing ? <AppForm app={editing} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /> : <><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} />Add</button></div><div className="settings-list">{apps.map((app) => <div className="settings-app" key={app.id}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button className="edit-button" onClick={() => onEdit(app)}><Pencil size={15} /></button></div>)}</div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></>}</aside></div>;
+}
+
+function AppForm({ app, onCancel, onSave, onDelete }: { app: ManagedApp; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+  const [form, setForm] = useState(app); const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
+  const isNew = !seedApps.some((item) => item.id === app.id);
+  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}><button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button><div className="form-title"><AppIcon app={form} large /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div><label>Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label><label>Launch URL<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label><div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div><label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label><label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="https://..." /></label><label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label><label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)}><span /></button></label><div className="form-actions"><button type="button" className="button subtle" onClick={onCancel}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={() => { onDelete(form.id); onCancel(); }}><Trash2 size={15} />Delete</button>}<button type="submit" className="button primary"><Check size={16} />Save changes</button></div></form>;
+}
+
+function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
+function GridIcon() { return <span className="grid-icon"><i /><i /><i /><i /></span>; }
+function BellIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>; }
