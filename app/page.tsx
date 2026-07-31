@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, ArrowUpRight, Check, ChevronDown, CircleHelp, Cloud, Cpu, Database,
   ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
@@ -29,6 +30,7 @@ function Gamepad2(props: React.ComponentProps<typeof Cloud>) { return <svg {...p
 function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m10 8 5 4-5 4V8Z"/></svg>; }
 
 const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
+const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
 function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
   const Icon = iconPalette[app.id] || LayoutGrid;
@@ -59,6 +61,7 @@ export default function Home() {
   const [savedNotice, setSavedNotice] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
@@ -105,7 +108,10 @@ export default function Home() {
   }
 
   async function deleteApp(id: string) {
+    setDeletingId(id);
+    await new Promise((resolve) => window.setTimeout(resolve, 180));
     setApps((current) => current.filter((app) => app.id !== id));
+    setDeletingId(null);
     await fetch("/api/apps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => undefined);
   }
 
@@ -124,13 +130,22 @@ export default function Home() {
         <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail="8 cores · healthy" progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail="312 GB of 1 TB" progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail="6.7 GB of 16 GB" progress={overview.memory} tone="blue" /></section>
         <section className="apps-section"><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{apps.length}</span></div><p>Everything you run, ready when you are.</p></div><button className="view-all" onClick={() => setCategory("All apps")}>View all <ArrowUpRight size={15} /></button></div>
           <div className="toolbar"><div className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." /><kbd>⌘ K</kbd></div><div className="filters">{categories.map((item) => <button key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" />}</button>)}</div></div>
-          {visibleApps.length ? <div className="app-grid">{visibleApps.map((app) => <AppCard key={app.id} app={app} onEdit={() => { setEditing(app); setSettingsOpen(true); }} />)}<button className="add-card" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><span><Plus size={21} /></span><strong>Add application</strong><small>Connect a new service</small></button></div> : <div className="empty-state"><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></div>}
+          <AnimatePresence mode="wait" initial={false}>
+            {visibleApps.length ? <motion.div key="app-grid" className="app-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition}>
+              <AnimatePresence initial={false} mode="popLayout">
+                {visibleApps.map((app) => <motion.div key={app.id} className="app-card-motion" layout initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={motionTransition}><AppCard app={app} onEdit={() => { setEditing(app); setSettingsOpen(true); }} /></motion.div>)}
+              </AnimatePresence>
+              <button className="add-card" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><span><Plus size={21} /></span><strong>Add application</strong><small>Connect a new service</small></button>
+            </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
+          </AnimatePresence>
         </section>
         <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Latest changes across your server</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><ActivityRow icon={<Power size={16} />} tone="green" title="Jellyfin is back online" time="Just now" /><ActivityRow icon={<Zap size={16} />} tone="purple" title="System backup completed" time="24 minutes ago" /><ActivityRow icon={<ShieldCheck size={16} />} tone="blue" title="AdGuard blocked 1,248 requests" time="2 hours ago" /></div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3><p>Across your connected drives</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><div className="storage-visual"><div className="donut"><div><strong>34%</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot green-dot" />System <b>86 GB</b></div><div><span className="legend-dot blue-dot" />Media <b>172 GB</b></div><div><span className="legend-dot gray-dot" />Available <b>688 GB</b></div></div></div></div></section>
         <footer><span>© 2026 Nimbus</span><span className="footer-separator" /><span>Private by design</span><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
       </div>
     </section>
-    {settingsOpen && <SettingsPanel apps={apps} editing={editing} onClose={() => { setSettingsOpen(false); setEditing(null); }} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} />}
+    <AnimatePresence initial={false}>
+      {settingsOpen && <motion.div key="settings-panel" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={() => { setSettingsOpen(false); setEditing(null); }}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} onClose={() => { setSettingsOpen(false); setEditing(null); }} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
+    </AnimatePresence>
     {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
   </main>;
 }
@@ -141,8 +156,8 @@ function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
 
 function ActivityRow({ icon, tone, title, time }: { icon: React.ReactNode; tone: string; title: string; time: string }) { return <div className="activity-row"><span className={`activity-icon ${tone}`}>{icon}</span><div><strong>{title}</strong><small>{time}</small></div><ChevronDown size={14} className="activity-arrow" /> </div>; }
 
-function SettingsPanel({ apps, editing, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
-  return <div className="panel-backdrop" onClick={onClose}><aside className="settings-panel" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2>Dashboard settings</h2></div><button className="close-button" onClick={onClose}><X size={19} /></button></div>{editing ? <AppForm app={editing} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /> : <><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} />Add</button></div><div className="settings-list">{apps.map((app) => <div className="settings-app" key={app.id}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button className="edit-button" onClick={() => onEdit(app)}><Pencil size={15} /></button></div>)}</div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></>}</aside></div>;
+function SettingsPanel({ apps, editing, deletingId, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; deletingId: string | null; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+  return <aside className="settings-panel" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2>Dashboard settings</h2></div><button className="close-button" onClick={onClose}><X size={19} /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)}><Pencil size={15} /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></aside>;
 }
 
 function AppForm({ app, onCancel, onSave, onDelete }: { app: ManagedApp; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
