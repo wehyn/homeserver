@@ -1,5 +1,6 @@
 export type AppStatus = "online" | "degraded" | "offline" | "unknown";
 export type AppSource = "manual" | "docker";
+export type ActivityType = "app-created" | "app-updated" | "app-deleted" | "status-changed";
 
 export type ManagedApp = {
   id: string;
@@ -15,6 +16,15 @@ export type ManagedApp = {
   isFavorite: boolean;
   isVisible: boolean;
   sortOrder: number;
+};
+
+export type ActivityEvent = {
+  id: number;
+  type: ActivityType;
+  appId?: string;
+  appName: string;
+  status?: AppStatus;
+  createdAt: string;
 };
 
 export type ServerOverview = {
