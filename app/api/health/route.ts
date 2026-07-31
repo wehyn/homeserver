@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { updateAppStatus } from "@/lib/db";
+import type { AppStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const url = new URL(request.url).searchParams.get("url");
+  const appId = new URL(request.url).searchParams.get("id");
   if (!url) return NextResponse.json({ status: "unknown" }, { status: 400 });
 
   try {
@@ -15,11 +18,14 @@ export async function GET(request: Request) {
     try {
       const response = await fetch(target, { method: "GET", cache: "no-store", signal: controller.signal });
       const elapsed = Date.now() - started;
-      return NextResponse.json({ status: response.ok ? (elapsed > 1800 ? "degraded" : "online") : "degraded", latency: elapsed });
+      const status = (response.ok ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
+      if (appId) updateAppStatus(appId, status);
+      return NextResponse.json({ status, latency: elapsed });
     } finally {
       clearTimeout(timeout);
     }
   } catch {
+    if (appId) updateAppStatus(appId, "offline");
     return NextResponse.json({ status: "offline" });
   }
 }

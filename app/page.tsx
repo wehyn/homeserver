@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Activity, ArrowUpRight, Check, ChevronDown, CircleHelp, Cloud, Cpu, Database,
+  Activity, ArrowUpRight, Check, ChevronDown, Cloud, Cpu, Database,
   ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
   Network, Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star,
-  Trash2, X, Zap,
+  Trash2, X,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
-import type { AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
+import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 
 const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
 
@@ -63,12 +63,24 @@ export default function Home() {
   const [overviewRefreshing, setOverviewRefreshing] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
   useEffect(() => {
     fetch("/api/apps").then((res) => res.json()).then((data) => data.apps && setApps(data.apps)).catch(() => undefined);
   }, []);
+
+  const refreshActivities = useCallback(async () => {
+    const response = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
+    if (!response?.ok) return;
+    const data = await response.json() as { activities?: ActivityEvent[] };
+    if (data.activities) setActivities(data.activities);
+  }, []);
+
+  useEffect(() => {
+    void refreshActivities();
+  }, [refreshActivities]);
 
   const refreshOverview = useCallback(async () => {
     setOverviewRefreshing(true);
@@ -94,7 +106,7 @@ export default function Home() {
     setRefreshing(true);
     const results = await Promise.all(checkedApps.map(async (app) => {
       const healthTarget = app.healthUrl || app.url;
-      const response = await fetch(`/api/health?url=${encodeURIComponent(healthTarget)}`).catch(() => null);
+      const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}&url=${encodeURIComponent(healthTarget)}`).catch(() => null);
       const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
       return { id: app.id, status: result.status as AppStatus };
     }));
@@ -103,8 +115,9 @@ export default function Home() {
       return result ? { ...app, status: result.status } : app;
     }));
     setLastCheckedAt(new Date());
+    void refreshActivities();
     setRefreshing(false);
-  }, []);
+  }, [refreshActivities]);
 
   useEffect(() => {
     void refreshHealth();
@@ -123,6 +136,7 @@ export default function Home() {
   async function saveApp(app: ManagedApp) {
     setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? app : item) : [...current, app]);
     await fetch("/api/apps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(app) }).catch(() => undefined);
+    await refreshActivities();
     setEditing(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2200);
   }
 
@@ -132,20 +146,21 @@ export default function Home() {
     setApps((current) => current.filter((app) => app.id !== id));
     setDeletingId(null);
     await fetch("/api/apps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => undefined);
+    await refreshActivities();
   }
 
   return <main className="shell">
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
-      <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span><span className="brand-beta">BETA</span></div>
-      <div className="server-switcher"><div className="server-avatar">H</div><div><strong>Home server</strong><small>Online · 192.168.1.31</small></div><ChevronDown size={15} /></div>
-      <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><button className="nav-item" onClick={() => { setCategory("All apps"); setSidebarOpen(false); }}><GridIcon />All applications<span className="nav-count">{apps.length}</span></button><button className="nav-item" onClick={() => { setCategory("Favorites"); setSidebarOpen(false); }}><Star size={17} />Favorites<span className="nav-count">{apps.filter((app) => app.isFavorite).length}</span></button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button><button className="nav-item"><CircleHelp size={17} />Help & docs</button></nav>
+      <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
+      <div className="server-switcher"><div className="server-avatar">H</div><div><strong>Home server</strong><small>Online · 192.168.2.116</small><small>Tailscale · 100.123.45.66</small></div><ChevronDown size={15} /></div>
+      <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><button className="nav-item" onClick={() => { setCategory("All apps"); setSidebarOpen(false); }}><GridIcon />All applications<span className="nav-count">{apps.length}</span></button><button className="nav-item" onClick={() => { setCategory("Favorites"); setSidebarOpen(false); }}><Star size={17} />Favorites<span className="nav-count">{apps.filter((app) => app.isFavorite).length}</span></button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button></nav>
       <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div><div className="profile-row"><div className="profile-avatar">D</div><div><strong>Dei</strong><small>Administrator</small></div><MoreHorizontal size={17} className="muted" /></div></div>
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Live metrics · 30 sec{overview.updatedAt ? ` · ${new Date(overview.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}{lastCheckedAt ? ` · health ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
       <div className="main-inner">
-        <section className="welcome-row"><div><p className="eyebrow">Friday, July 31, 2026 <span className="eyebrow-line" /></p><h1>Good evening, Dei <span className="wave">✦</span></h1><p className="subheading">Your private corner of the internet, all in one place.</p></div><div className="welcome-actions"><button className="button subtle" onClick={() => setSettingsOpen(true)}><Settings2 size={16} />Customize</button><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
+        <section className="welcome-row"><div><p className="eyebrow">Friday, July 31, 2026 <span className="eyebrow-line" /></p><p className="subheading">Your private corner of the internet, all in one place.</p></div><div className="welcome-actions"><button className="button subtle" onClick={() => setSettingsOpen(true)}><Settings2 size={16} />Customize</button><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
         <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail={`${overview.cpuCores || "—"} logical cores · live`} progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail={`${overview.storageUsed} of ${overview.storageTotal}`} progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail={`${overview.memoryUsed} of ${overview.memoryTotal}`} progress={overview.memory} tone="blue" /></section>
         <section className="apps-section"><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{apps.length}</span></div><p>Everything you run, ready when you are.</p></div><button className="view-all" onClick={() => setCategory("All apps")}>View all <ArrowUpRight size={15} /></button></div>
           <div className="toolbar"><div className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." /><kbd>⌘ K</kbd></div><div className="filters">{categories.map((item) => <button key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" />}</button>)}</div></div>
@@ -158,7 +173,7 @@ export default function Home() {
             </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
           </AnimatePresence>
         </section>
-        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Latest changes across your server</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><ActivityRow icon={<Power size={16} />} tone="green" title="Jellyfin is back online" time="Just now" /><ActivityRow icon={<Zap size={16} />} tone="purple" title="System backup completed" time="24 minutes ago" /><ActivityRow icon={<ShieldCheck size={16} />} tone="blue" title="AdGuard blocked 1,248 requests" time="2 hours ago" /></div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3><p>Filesystem containing Nimbus data</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><div className="storage-visual"><div className="donut" style={{ background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` }}><div><strong>{overview.storage}%</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{overview.storageUsed}</b></div><div><span className="legend-dot gray-dot" />Available <b>{overview.storageAvailable}</b></div><div><span className="legend-dot blue-dot" />Total <b>{overview.storageTotal}</b></div></div></div></div></section>
+        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Latest changes across your server</p></div><button className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3><p>Filesystem containing Nimbus data</p></div><button className="more-button"><MoreHorizontal size={17} /></button></div><div className="storage-visual"><div className="donut" style={{ background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` }}><div><strong>{overview.storage}%</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{overview.storageUsed}</b></div><div><span className="legend-dot gray-dot" />Available <b>{overview.storageAvailable}</b></div><div><span className="legend-dot blue-dot" />Total <b>{overview.storageTotal}</b></div></div></div></div></section>
         <footer><span>© 2026 Nimbus</span><span className="footer-separator" /><span>Private by design</span><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
       </div>
     </section>
@@ -173,7 +188,45 @@ function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
   return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}><div className="app-card-top"><span className="category-label">{app.category}</span><button className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} /></button></div><a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" />}</div><p>{app.description}</p></div></a><div className="app-card-bottom"><span className="status-label"><StatusDot status={app.status} />{statusCopy[app.status]}</span><span className="launch-link">Open <ExternalLink size={13} /></span></div></article>;
 }
 
-function ActivityRow({ icon, tone, title, time }: { icon: React.ReactNode; tone: string; title: string; time: string }) { return <div className="activity-row"><span className={`activity-icon ${tone}`}>{icon}</span><div><strong>{title}</strong><small>{time}</small></div><ChevronDown size={14} className="activity-arrow" /> </div>; }
+function ActivityRow({ activity }: { activity: ActivityEvent }) {
+  return <div className="activity-row"><span className={`activity-icon ${activityTone(activity)}`}>{activityIcon(activity)}</span><div><strong>{activityTitle(activity)}</strong><small>{formatRelativeTime(activity.createdAt)}</small></div><ChevronDown size={14} className="activity-arrow" /> </div>;
+}
+
+function activityTitle(activity: ActivityEvent) {
+  if (activity.type === "app-created") return `${activity.appName} added`;
+  if (activity.type === "app-updated") return `${activity.appName} updated`;
+  if (activity.type === "app-deleted") return `${activity.appName} removed`;
+  if (activity.status === "online") return `${activity.appName} is back online`;
+  if (activity.status === "degraded") return `${activity.appName} is responding slowly`;
+  if (activity.status === "offline") return `${activity.appName} is offline`;
+  return `${activity.appName} status checked`;
+}
+
+function activityTone(activity: ActivityEvent) {
+  if (activity.type === "status-changed" && activity.status === "offline") return "purple";
+  if (activity.type === "status-changed" && activity.status === "degraded") return "blue";
+  return activity.type === "app-deleted" ? "purple" : "green";
+}
+
+function activityIcon(activity: ActivityEvent) {
+  if (activity.type === "app-deleted") return <Trash2 size={16} />;
+  if (activity.type === "app-created") return <Plus size={16} />;
+  if (activity.type === "app-updated") return <Pencil size={16} />;
+  if (activity.status === "offline") return <X size={16} />;
+  return <Power size={16} />;
+}
+
+function formatRelativeTime(createdAt: string) {
+  const elapsed = Math.max(0, Date.now() - new Date(createdAt).getTime());
+  if (!Number.isFinite(elapsed)) return "Recently";
+  const minutes = Math.floor(elapsed / 60_000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
 
 function SettingsPanel({ apps, editing, deletingId, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; deletingId: string | null; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
   return <aside className="settings-panel" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2>Dashboard settings</h2></div><button className="close-button" onClick={onClose}><X size={19} /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)}><Pencil size={15} /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></aside>;

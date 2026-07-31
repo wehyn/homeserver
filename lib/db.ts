@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { seedApps } from "./seed";
-import type { ManagedApp } from "./types";
+import type { ActivityEvent, ActivityType, AppStatus, ManagedApp } from "./types";
 
 const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "nimbus.db");
 let database: DatabaseSync | undefined;
@@ -31,6 +31,17 @@ function getDatabase() {
         sort_order INTEGER NOT NULL DEFAULT 0
       )
     `);
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS activities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        app_id TEXT,
+        app_name TEXT NOT NULL,
+        status TEXT,
+        created_at TEXT NOT NULL
+      )
+    `);
+    database.exec("CREATE INDEX IF NOT EXISTS activities_created_at_idx ON activities (created_at DESC)");
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
       const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, status, source, is_favorite, is_visible, sort_order)
@@ -66,12 +77,44 @@ export function listApps() {
 }
 
 export function saveApp(app: ManagedApp) {
-  getDatabase().prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, status, source, is_favorite, is_visible, sort_order)
+  const database = getDatabase();
+  const existing = database.prepare("SELECT id FROM apps WHERE id = ?").get(app.id);
+  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, status, source, is_favorite, is_visible, sort_order)
     VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @status, @source, @isFavorite, @isVisible, @sortOrder)
     ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder`).run(toRow(app));
+  recordActivity(existing ? "app-updated" : "app-created", app.id, app.name);
   return app;
 }
 
 export function removeApp(id: string) {
-  getDatabase().prepare("DELETE FROM apps WHERE id = ?").run(id);
+  const database = getDatabase();
+  const app = database.prepare("SELECT name FROM apps WHERE id = ?").get(id) as { name?: string } | undefined;
+  database.prepare("DELETE FROM apps WHERE id = ?").run(id);
+  if (app?.name) recordActivity("app-deleted", id, app.name);
+}
+
+export function updateAppStatus(id: string, status: AppStatus) {
+  const database = getDatabase();
+  const app = database.prepare("SELECT name, status FROM apps WHERE id = ?").get(id) as { name?: string; status?: AppStatus } | undefined;
+  if (!app?.name || app.status === status) return;
+  database.prepare("UPDATE apps SET status = ? WHERE id = ?").run(status, id);
+  recordActivity("status-changed", id, app.name, status);
+}
+
+export function listActivities(limit = 5): ActivityEvent[] {
+  const rows = getDatabase().prepare(`SELECT id, type, app_id, app_name, status, created_at
+    FROM activities ORDER BY created_at DESC, id DESC LIMIT ?`).all(Math.max(1, Math.floor(limit))) as Record<string, unknown>[];
+  return rows.map((row) => ({
+    id: Number(row.id),
+    type: row.type as ActivityType,
+    appId: row.app_id ? String(row.app_id) : undefined,
+    appName: String(row.app_name),
+    status: row.status ? row.status as AppStatus : undefined,
+    createdAt: String(row.created_at),
+  }));
+}
+
+function recordActivity(type: ActivityType, appId: string, appName: string, status?: AppStatus) {
+  getDatabase().prepare(`INSERT INTO activities (type, app_id, app_name, status, created_at)
+    VALUES (?, ?, ?, ?, ?)`).run(type, appId, appName, status ?? null, new Date().toISOString());
 }
