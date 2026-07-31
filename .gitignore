@@ -7,3 +7,10 @@ data/*.db-wal
 .env*
 !.env.example
 *.tsbuildinfo
+data/*.db-journal
+*.log
+.DS_Store
+.eslintcache
+coverage/
+.nyc_output/
+.vercel/
