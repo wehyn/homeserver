@@ -151,6 +151,10 @@ Local verification currently consists of `npm run lint`, `npm run build`, and a 
 against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs `npm ci`,
 `npm run lint`, and `npm run build` on pushes and pull requests targeting `main`.
 
+- If the execution shell cannot resolve `node` or `npm`, verify the user shell’s PATH before
+  treating Node.js as unavailable; use the project’s Node 24 Docker environment as a fallback and
+  report the shell-environment mismatch.
+
 ## Security & Compliance
 
 - Keep runtime secrets and machine-specific values in `.env`; `.env*` is ignored except for
