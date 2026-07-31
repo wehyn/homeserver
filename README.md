@@ -21,11 +21,11 @@ docker compose up -d --build
 
 The SQLite database is stored in the `nimbus-data` volume. To expose Nimbus safely outside your LAN, put it behind the reverse proxy or VPN you already use for your other services.
 
-The Compose deployment also starts a read-only host metrics agent for the Memory page. It reads
+The Compose deployment also starts a read-only host metrics agent for the Memory and Processor pages. It reads
 Linux process information through `/proc` and user names through `/etc/passwd`; neither mount is
 writable, the agent publishes no host port, and it does not require the Docker socket. Set
 `MEMORY_AGENT_TOKEN` in `.env` to add a shared bearer token between Nimbus and the agent. The
-Memory page polls the agent only while it is open.
+Memory and Processor pages poll the agent only while they are open.
 
 ## Connecting an app
 
