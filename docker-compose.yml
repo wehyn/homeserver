@@ -1,0 +1,16 @@
+services:
+  nimbus:
+    build: .
+    container_name: nimbus-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_PATH: /app/data/nimbus.db
+    volumes:
+      - nimbus-data:/app/data
+      # Uncomment to enable future Docker Compose discovery.
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+
+volumes:
+  nimbus-data:
