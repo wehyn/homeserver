@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowUpRight, Check, ChevronDown, CircleHelp, Cloud, Cpu, Database,
   ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
-  Network, Pencil, Plus, Power, Search, Settings2, ShieldCheck, Sparkles, Star,
+  Network, Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star,
   Trash2, X, Zap,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
@@ -57,26 +57,38 @@ export default function Home() {
   const [editing, setEditing] = useState<ManagedApp | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+  const appsRef = useRef(apps);
+  appsRef.current = apps;
 
   useEffect(() => {
     fetch("/api/apps").then((res) => res.json()).then((data) => data.apps && setApps(data.apps)).catch(() => undefined);
     fetch("/api/overview").then((res) => res.json()).then(setOverview).catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    const checkedApps = apps.filter((app) => app.healthUrl);
+  const refreshHealth = useCallback(async () => {
+    const checkedApps = appsRef.current.filter((app) => app.healthUrl);
     if (!checkedApps.length) return;
-    let cancelled = false;
-    Promise.all(checkedApps.map(async (app) => {
+    setRefreshing(true);
+    const results = await Promise.all(checkedApps.map(async (app) => {
       const response = await fetch(`/api/health?url=${encodeURIComponent(app.healthUrl || "")}`).catch(() => null);
       const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
       return { id: app.id, status: result.status as AppStatus };
-    })).then((results) => {
-      if (cancelled) return;
-      setApps((current) => current.map((app) => results.find((result) => result.id === app.id) ? { ...app, status: results.find((result) => result.id === app.id)!.status } : app));
-    });
-    return () => { cancelled = true; };
-  }, [apps.map((app) => `${app.id}:${app.healthUrl}`).join("|")]);
+    }));
+    setApps((current) => current.map((app) => {
+      const result = results.find((item) => item.id === app.id);
+      return result ? { ...app, status: result.status } : app;
+    }));
+    setLastCheckedAt(new Date());
+    setRefreshing(false);
+  }, []);
+
+  useEffect(() => {
+    void refreshHealth();
+    const interval = window.setInterval(() => void refreshHealth(), 30_000);
+    return () => window.clearInterval(interval);
+  }, [refreshHealth, apps.map((app) => `${app.id}:${app.healthUrl}`).join("|")]);
 
   const visibleApps = useMemo(() => apps.filter((app) => {
     const matchQuery = `${app.name} ${app.description} ${app.category}`.toLowerCase().includes(query.toLowerCase());
@@ -106,7 +118,7 @@ export default function Home() {
       <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div><div className="profile-row"><div className="profile-avatar">D</div><div><strong>Dei</strong><small>Administrator</small></div><MoreHorizontal size={17} className="muted" /></div></div>
     </aside>
     <section className="content">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Live sync</span><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Health checks · 30 sec{lastCheckedAt ? ` · ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}</span><button className="icon-button" onClick={() => void refreshHealth()} title="Check service health now" aria-label="Check service health now"><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">Friday, July 31, 2026 <span className="eyebrow-line" /></p><h1>Good evening, Dei <span className="wave">✦</span></h1><p className="subheading">Your private corner of the internet, all in one place.</p></div><div className="welcome-actions"><button className="button subtle" onClick={() => setSettingsOpen(true)}><Settings2 size={16} />Customize</button><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
         <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={`${overview.cpu}%`} detail="8 cores · healthy" progress={overview.cpu} tone="green" /><StatCard icon={HardDrive} label="Storage used" value={`${overview.storage}%`} detail="312 GB of 1 TB" progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={`${overview.memory}%`} detail="6.7 GB of 16 GB" progress={overview.memory} tone="blue" /></section>
