@@ -1,6 +1,5 @@
 node_modules/
 .next/
-agent/dist/
 out/
 data/*.db
 data/*.db-shm
