@@ -1,10 +1,7 @@
 import https from "node:https";
 import { NextResponse } from "next/server";
 import { findApp, updateAppStatus } from "@/lib/db";
-import { deliverNotificationEvent } from "@/lib/notification-delivery";
-import { getNotificationTransition } from "@/lib/notifications";
-import { recordServiceObservation } from "@/lib/service-operations";
-import type { AppStatus, ManagedApp } from "@/lib/types";
+import type { AppStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -12,13 +9,11 @@ export async function GET(request: Request) {
   const url = new URL(request.url).searchParams.get("url");
   const appId = new URL(request.url).searchParams.get("id");
   if (!url) return NextResponse.json({ status: "unknown" }, { status: 400 });
-  let app: ManagedApp | undefined;
 
   try {
-    app = appId ? findApp(appId) : undefined;
-    if (appId && !app) return NextResponse.json({ status: "unknown", error: "Application not found" }, { status: 404 });
-    const target = new URL(app?.healthUrl || app?.url || url);
+    const target = new URL(url);
     if (!["http:", "https:"].includes(target.protocol)) throw new Error("Unsupported protocol");
+    const app = appId ? findApp(appId) : undefined;
     const configuredTarget = app?.healthUrl || app?.url;
     const allowInsecureTls = app?.allowInsecureTls === true && configuredTarget ? new URL(configuredTarget).href === target.href : false;
     const started = Date.now();
@@ -27,26 +22,12 @@ export async function GET(request: Request) {
       : await fetchWithTimeout(target);
     const elapsed = Date.now() - started;
     const status = (response.ok ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
-    if (appId) {
-      updateAppStatus(appId, status);
-      const result = recordServiceObservation({ serviceId: appId, status, latencyMs: elapsed, source: "health" });
-      notifyTransition(app, result);
-    }
+    if (appId) updateAppStatus(appId, status);
     return NextResponse.json({ status, latency: elapsed });
   } catch {
-    if (appId) {
-      updateAppStatus(appId, "offline");
-      const result = recordServiceObservation({ serviceId: appId, status: "offline", source: "health" });
-      notifyTransition(app, result);
-    }
+    if (appId) updateAppStatus(appId, "offline");
     return NextResponse.json({ status: "offline" });
   }
-}
-
-function notifyTransition(app: ManagedApp | undefined, result: ReturnType<typeof recordServiceObservation>) {
-  if (!app || !result.previousStatus || !result.statusTransitionRecorded) return;
-  const event = getNotificationTransition(app.id, app.name, result.previousStatus, result.observation.status);
-  if (event) void deliverNotificationEvent(event).catch(() => undefined);
 }
 
 async function fetchWithTimeout(target: URL) {

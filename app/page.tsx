@@ -9,7 +9,6 @@ import {
   Network, Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star,
   Trash2, TriangleAlert, X,
 } from "lucide-react";
-import { getNotificationTransition, notificationPreferenceKey, type NotificationEvent } from "@/lib/notifications";
 import { seedApps } from "@/lib/seed";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 
@@ -33,8 +32,6 @@ function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props
 
 const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
-type NotificationPermissionState = NotificationPermission | "unsupported";
-type BeforeInstallPromptEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: "accepted" | "dismissed" }> };
 
 type StatusSummary = {
   status: AppStatus;
@@ -92,21 +89,12 @@ export default function Home() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
-  const [notificationOpen, setNotificationOpen] = useState(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermissionState>("default");
-  const [notificationMessage, setNotificationMessage] = useState("");
-  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const activeHealthRefreshesRef = useRef(0);
   const [searchShortcut, setSearchShortcut] = useState("⌘ K");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
-  const notificationTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const notificationCloseRef = useRef<HTMLButtonElement>(null);
   const mobileMenuRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarCloseRef = useRef<HTMLButtonElement>(null);
-  const healthStatusesRef = useRef(new Map<string, AppStatus>());
-  const notificationsEnabledRef = useRef(false);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
@@ -127,28 +115,17 @@ export default function Home() {
     mobileMenuRef.current?.focus();
   }, []);
 
-  const openNotifications = useCallback(() => {
-    const activeElement = document.activeElement;
-    notificationTriggerRef.current = activeElement instanceof HTMLButtonElement ? activeElement : null;
-    setNotificationMessage("");
-    setNotificationOpen(true);
-  }, []);
-
-  const closeNotifications = useCallback(() => {
-    setNotificationOpen(false);
-  }, []);
-
   useEffect(() => {
     const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
     setSearchShortcut(isApplePlatform ? "⌘ K" : "Ctrl K");
     const handleSearchShortcut = (event: KeyboardEvent) => {
-      if (settingsOpen || notificationOpen || event.isComposing || event.altKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      if (settingsOpen || event.isComposing || event.altKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
       event.preventDefault();
       searchInputRef.current?.focus();
     };
     window.addEventListener("keydown", handleSearchShortcut);
     return () => window.removeEventListener("keydown", handleSearchShortcut);
-  }, [notificationOpen, settingsOpen]);
+  }, [settingsOpen]);
 
   useEffect(() => {
     if (settingsOpen) return;
@@ -166,101 +143,10 @@ export default function Home() {
   }, [sidebarOpen]);
 
   useEffect(() => {
-    if (notificationOpen) {
-      notificationCloseRef.current?.focus();
-      return;
-    }
-    const trigger = notificationTriggerRef.current;
-    if (trigger?.isConnected) trigger.focus();
-    notificationTriggerRef.current = null;
-  }, [notificationOpen]);
-
-  useEffect(() => {
     const updateDate = () => setCurrentDate(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date()));
     updateDate();
     const interval = window.setInterval(updateDate, 60_000);
     return () => window.clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if ("serviceWorker" in navigator) void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
-    if ("Notification" in window) {
-      const permission = window.Notification.permission;
-      setNotificationPermission(permission);
-      let storedPreference = false;
-      try {
-        storedPreference = window.localStorage.getItem(notificationPreferenceKey) === "enabled";
-      } catch {
-        storedPreference = false;
-      }
-      const enabled = storedPreference && permission === "granted";
-      setNotificationsEnabled(enabled);
-      notificationsEnabledRef.current = enabled;
-    } else {
-      setNotificationPermission("unsupported");
-    }
-
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPrompt(event as BeforeInstallPromptEvent);
-    };
-    const handleAppInstalled = () => setInstallPrompt(null);
-    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-    window.addEventListener("appinstalled", handleAppInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
-      window.removeEventListener("appinstalled", handleAppInstalled);
-    };
-  }, []);
-
-  const enableNotifications = useCallback(async () => {
-    if (!("Notification" in window)) {
-      setNotificationPermission("unsupported");
-      setNotificationMessage("This browser does not support notifications.");
-      return;
-    }
-    const permission = await window.Notification.requestPermission();
-    setNotificationPermission(permission);
-    if (permission === "granted") {
-      try { window.localStorage.setItem(notificationPreferenceKey, "enabled"); } catch { /* Preference remains session-only. */ }
-      setNotificationsEnabled(true);
-      notificationsEnabledRef.current = true;
-      setNotificationMessage("Outage alerts are enabled on this device.");
-    } else if (permission === "denied") {
-      setNotificationMessage("Notifications are blocked. Allow them in your browser settings to continue.");
-    } else {
-      setNotificationMessage("Notifications were not enabled.");
-    }
-  }, []);
-
-  const disableNotifications = useCallback(() => {
-    try { window.localStorage.removeItem(notificationPreferenceKey); } catch { /* Ignore unavailable storage. */ }
-    setNotificationsEnabled(false);
-    notificationsEnabledRef.current = false;
-    setNotificationMessage("Outage alerts are disabled on this device.");
-  }, []);
-
-  const installNimbus = useCallback(async () => {
-    if (!installPrompt) return;
-    await installPrompt.prompt();
-    const choice = await installPrompt.userChoice;
-    setInstallPrompt(null);
-    if (choice.outcome === "accepted") setNotificationMessage("Nimbus was added to your home screen.");
-  }, [installPrompt]);
-
-  const showBrowserNotification = useCallback((event: NotificationEvent) => {
-    if (notificationsEnabledRef.current && "Notification" in window && window.Notification.permission === "granted") {
-      try {
-        const notification = new window.Notification(event.title, {
-          body: event.body,
-          icon: "/icons/nimbus-192.svg",
-          tag: `nimbus-${event.appId}`,
-        });
-        notification.onclick = () => { window.focus(); notification.close(); };
-      } catch {
-        // Ignore browser notification construction failures.
-      }
-    }
   }, []);
 
   const loadApps = useCallback(async () => {
@@ -271,9 +157,6 @@ export default function Home() {
       const data = response ? await response.json().catch(() => ({})) as { apps?: ManagedApp[]; error?: string } : {};
       if (!response?.ok || !Array.isArray(data.apps)) throw new Error(data.error || "Unable to load applications.");
       setApps(data.apps);
-      data.apps.forEach((app) => {
-        if (app.status !== "unknown") healthStatusesRef.current.set(app.id, app.status);
-      });
     } catch (caught) {
       setAppsError(caught instanceof Error ? caught.message : "Unable to load applications.");
     } finally {
@@ -329,25 +212,16 @@ export default function Home() {
         const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
         return { id: app.id, status: result.status as AppStatus };
       }));
-      const transitions: NotificationEvent[] = [];
-      results.forEach((result) => {
-        const app = checkedApps.find((item) => item.id === result.id);
-        if (!app) return;
-        const transition = getNotificationTransition(app.id, app.name, healthStatusesRef.current.get(app.id), result.status);
-        if (transition) transitions.push(transition);
-        if (result.status !== "unknown") healthStatusesRef.current.set(app.id, result.status);
-      });
       setApps((current) => current.map((app) => {
         const result = results.find((item) => item.id === app.id);
         return result ? { ...app, status: result.status } : app;
       }));
-      transitions.forEach((transition) => showBrowserNotification(transition));
       void refreshActivities();
     } finally {
       activeHealthRefreshesRef.current -= 1;
       setRefreshing(activeHealthRefreshesRef.current > 0);
     }
-  }, [refreshActivities, showBrowserNotification]);
+  }, [refreshActivities]);
 
   useEffect(() => {
     if (appsLoading) return;
@@ -382,7 +256,6 @@ export default function Home() {
     setDeletingId(id);
     await new Promise((resolve) => window.setTimeout(resolve, 180));
     setApps((current) => current.filter((app) => app.id !== id));
-    healthStatusesRef.current.delete(id);
     setDeletingId(null);
     await fetch("/api/apps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => undefined);
     await refreshActivities();
@@ -392,12 +265,12 @@ export default function Home() {
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
     <aside id="primary-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span><button type="button" ref={mobileSidebarCloseRef} className="mobile-sidebar-close" onClick={closeSidebar} aria-label="Close navigation menu"><X size={19} aria-hidden="true" /></button></div>
-      <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active" onClick={closeSidebar}><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><Link className="nav-item" href="/telemetry" onClick={closeSidebar}><Gauge size={17} />Host telemetry</Link><button type="button" className="nav-item" onClick={() => { setSidebarOpen(false); openSettings(null); }}><Settings2 size={17} />Application management</button></nav>
+      <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active" onClick={closeSidebar}><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => { setSidebarOpen(false); openSettings(null); }}><Settings2 size={17} />Application management</button></nav>
       <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
     </aside>
     {sidebarOpen && <button type="button" className="sidebar-backdrop" onClick={closeSidebar} aria-label="Close navigation menu" />}
     <section className="content">
-      <header className="topbar"><button type="button" ref={mobileMenuRef} className="mobile-menu" onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className={`icon-button notification-button ${notificationsEnabled ? "notification-enabled" : ""}`} onClick={openNotifications} aria-label={notificationsEnabled ? "Outage notifications enabled. Open notification settings" : "Set up outage notifications"} aria-expanded={notificationOpen} aria-controls="notification-settings"><BellIcon /><span className="notification-dot" aria-hidden="true" /></button><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
+      <header className="topbar"><button type="button" ref={mobileMenuRef} className="mobile-menu" onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div><div className="welcome-actions"><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div></section>
         <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Gauge} label="System uptime" value={overview?.uptime || "—"} detail={overviewDetail} tone="purple" loading={overviewRefreshing} /><StatCard icon={Cpu} label="Processor" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" loading={overviewRefreshing} /><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
@@ -418,14 +291,13 @@ export default function Home() {
     </section>
     <AnimatePresence initial={false}>
       {settingsOpen && <motion.div key="settings-panel" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
-      {notificationOpen && <motion.div key="notification-panel" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeNotifications}><aside id="notification-settings" className="settings-panel notification-panel" role="dialog" aria-modal="true" aria-labelledby="notification-settings-title" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Device</p><h2 id="notification-settings-title">Outage notifications</h2></div><button type="button" ref={notificationCloseRef} className="close-button" onClick={closeNotifications} aria-label="Close notification settings"><X size={19} aria-hidden="true" /></button></div><div className="notification-content"><div className="notification-intro"><BellIcon /><div><strong>Stay ahead of service changes</strong><p>Enable browser alerts for meaningful service outages, slow responses, and recoveries.</p></div></div><div className={`notification-state ${notificationsEnabled ? "notification-state-enabled" : ""}`} role="status"><span className="notification-state-dot" aria-hidden="true" /><span>{notificationsEnabled ? "Browser outage alerts are enabled." : notificationPermission === "denied" ? "Browser alerts are blocked." : notificationPermission === "unsupported" ? "Browser alerts are unavailable." : "Browser alerts are off."}</span></div>{notificationsEnabled ? <button type="button" className="button subtle notification-action" onClick={disableNotifications}>Disable browser alerts</button> : <button type="button" className="button primary notification-action" onClick={() => void enableNotifications()} disabled={notificationPermission === "unsupported"}>Enable browser alerts</button>}{notificationMessage && <p className="notification-feedback" role="status">{notificationMessage}</p>}{installPrompt && <button type="button" className="button subtle notification-action" onClick={() => void installNimbus()}>Install Nimbus</button>}<p className="notification-note">On iPhone and iPad, use your browser’s Add to Home Screen action after opening Nimbus over HTTPS or your trusted local network.</p><p className="notification-note">Server-side webhook delivery runs when Nimbus records a health transition. Configure <code>NIMBUS_NOTIFICATION_WEBHOOK_URL</code> on the server; credentials and external hosts stay out of the browser.</p></div></aside></motion.div>}
     </AnimatePresence>
     {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
   </main>;
 }
 
 function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
-  return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}><div className="app-card-top"><span className="category-label">{app.category}</span><button type="button" className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button></div><a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div><p>{app.description}</p></div></a><div className="app-card-bottom"><span className="status-label"><StatusDot status={app.status} />{statusCopy[app.status]}</span><div className="app-card-links"><Link className="service-details-link" href={`/service/${encodeURIComponent(app.id)}`} aria-label={`View ${app.name} service details`}>Details</Link><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div></div></article>;
+  return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}><div className="app-card-top"><span className="category-label">{app.category}</span><button type="button" className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button></div><a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div><p>{app.description}</p></div></a><div className="app-card-bottom"><span className="status-label"><StatusDot status={app.status} />{statusCopy[app.status]}</span><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div></article>;
 }
 
 function ActivityRow({ activity }: { activity: ActivityEvent }) {
