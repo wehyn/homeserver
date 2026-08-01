@@ -7,7 +7,7 @@ import {
   Activity, Check, ChevronDown, Cloud, Cpu, Database,
   ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
   Network, Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star,
-  Trash2, X,
+  Trash2, TriangleAlert, X,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
@@ -40,8 +40,10 @@ type StatusSummary = {
   loading: boolean;
 };
 
-function getStatusSummary(apps: ManagedApp[], refreshing: boolean): StatusSummary {
+function getStatusSummary(apps: ManagedApp[], appsLoading: boolean, appsError: string, refreshing: boolean): StatusSummary {
   const onlineCount = apps.filter((app) => app.status === "online").length;
+  if (appsLoading) return { status: "unknown", title: "Loading services", detail: "Loading application registry", loading: true };
+  if (appsError) return { status: "unknown", title: "Services unavailable", detail: "Application registry unavailable", loading: false };
   const detail = `${onlineCount} of ${apps.length} services online`;
   if (!apps.length) return { status: "unknown", title: "No services configured", detail, loading: false };
   if (refreshing) return { status: "unknown", title: "Checking service status", detail, loading: true };
@@ -61,18 +63,20 @@ function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
 
 function StatusDot({ status }: { status: AppStatus }) { return <span className={`status-dot status-${status}`} aria-label={statusCopy[status]} />; }
 
-function StatCard({ icon: Icon, label, value, detail, progress, tone, href }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string; href?: string }) {
+function StatCard({ icon: Icon, label, value, detail, progress, tone, href, loading = false }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string; href?: string; loading?: boolean }) {
   const content = <>
     <div className="stat-card-top"><span className={`stat-icon ${tone}`}><Icon size={16} /></span><span>{label}</span></div>
     <div className="stat-value">{value}</div><div className="stat-detail">{detail}</div>
     {progress !== undefined && <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>}
   </>;
-  return href ? <Link className="stat-card stat-card-link" href={href} aria-label={`View ${label.toLowerCase()} details`}>{content}</Link> : <div className="stat-card">{content}</div>;
+  return href ? <Link className="stat-card stat-card-link" href={href} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</Link> : <div className="stat-card" aria-busy={loading}>{content}</div>;
 }
 
 export default function Home() {
-  const [apps, setApps] = useState<ManagedApp[]>(seedApps);
-  const [overview, setOverview] = useState<ServerOverview>({ uptime: "—", cpu: 0, cpuCores: 0, memory: 0, memoryUsed: "—", memoryTotal: "—", storage: 0, storageUsed: "—", storageAvailable: "—", storageTotal: "—", network: "Local network", updatedAt: "" });
+  const [apps, setApps] = useState<ManagedApp[]>([]);
+  const [appsLoading, setAppsLoading] = useState(true);
+  const [appsError, setAppsError] = useState("");
+  const [overview, setOverview] = useState<ServerOverview | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All apps");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -80,13 +84,48 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [overviewRefreshing, setOverviewRefreshing] = useState(false);
+  const [overviewRefreshing, setOverviewRefreshing] = useState(true);
+  const [overviewError, setOverviewError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
   const activeHealthRefreshesRef = useRef(0);
+  const [searchShortcut, setSearchShortcut] = useState("⌘ K");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const settingsTriggerRef = useRef<HTMLElement | null>(null);
   const appsRef = useRef(apps);
   appsRef.current = apps;
+
+  const openSettings = useCallback((nextEditing: ManagedApp | null) => {
+    const activeElement = document.activeElement;
+    settingsTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+    setEditing(nextEditing);
+    setSettingsOpen(true);
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    setEditing(null);
+  }, []);
+
+  useEffect(() => {
+    const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
+    setSearchShortcut(isApplePlatform ? "⌘ K" : "Ctrl K");
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      if (settingsOpen || event.isComposing || event.altKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, [settingsOpen]);
+
+  useEffect(() => {
+    if (settingsOpen) return;
+    const trigger = settingsTriggerRef.current;
+    if (trigger?.isConnected) trigger.focus();
+    settingsTriggerRef.current = null;
+  }, [settingsOpen]);
 
   useEffect(() => {
     const updateDate = () => setCurrentDate(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date()));
@@ -95,9 +134,24 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    fetch("/api/apps").then((res) => res.json()).then((data) => data.apps && setApps(data.apps)).catch(() => undefined);
+  const loadApps = useCallback(async () => {
+    setAppsLoading(true);
+    setAppsError("");
+    try {
+      const response = await fetch("/api/apps", { cache: "no-store" }).catch(() => null);
+      const data = response ? await response.json().catch(() => ({})) as { apps?: ManagedApp[]; error?: string } : {};
+      if (!response?.ok || !Array.isArray(data.apps)) throw new Error(data.error || "Unable to load applications.");
+      setApps(data.apps);
+    } catch (caught) {
+      setAppsError(caught instanceof Error ? caught.message : "Unable to load applications.");
+    } finally {
+      setAppsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadApps();
+  }, [loadApps]);
 
   const refreshActivities = useCallback(async () => {
     const response = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
@@ -114,9 +168,12 @@ export default function Home() {
     setOverviewRefreshing(true);
     try {
       const response = await fetch("/api/overview", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
+      if (!response?.ok) throw new Error("Unable to load system overview.");
       const data = await response.json() as ServerOverview;
       setOverview(data);
+      setOverviewError("");
+    } catch (caught) {
+      setOverviewError(caught instanceof Error ? caught.message : "Unable to load system overview.");
     } finally {
       setOverviewRefreshing(false);
     }
@@ -152,10 +209,11 @@ export default function Home() {
   }, [refreshActivities]);
 
   useEffect(() => {
+    if (appsLoading) return;
     void refreshHealth();
     const interval = window.setInterval(() => void refreshHealth(), 30_000);
     return () => window.clearInterval(interval);
-  }, [refreshHealth, apps.map((app) => `${app.id}:${app.healthUrl || app.url}`).join("|")]);
+  }, [refreshHealth, appsLoading, apps.map((app) => `${app.id}:${app.healthUrl || app.url}`).join("|")]);
 
   const visibleApps = useMemo(() => apps.filter((app) => {
     const matchQuery = `${app.name} ${app.description} ${app.category}`.toLowerCase().includes(query.toLowerCase());
@@ -163,11 +221,18 @@ export default function Home() {
     return app.isVisible && matchQuery && matchCategory;
   }), [apps, category, query]);
 
-  const statusSummary = getStatusSummary(apps, refreshing);
+  const statusSummary = getStatusSummary(apps, appsLoading, appsError, refreshing);
+  const overviewDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? "Since last restart" : "Loading system metrics…";
+  const processorDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.cpuCores} logical cores · live` : "Loading system metrics…";
+  const storageDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading system metrics…";
+  const memoryDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.memoryUsed} of ${overview.memoryTotal}` : "Loading system metrics…";
+  const storageStatus = overviewError ? (overview ? "stale" : "unavailable") : overview ? "used" : "loading";
+  const storageLegendValue = (value?: string) => !overview || !value ? "—" : overviewError ? `${value} · stale` : value;
 
   async function saveApp(app: ManagedApp) {
     setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? app : item) : [...current, app]);
     await fetch("/api/apps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(app) }).catch(() => undefined);
+    setAppsError("");
     await refreshActivities();
     setEditing(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2200);
   }
@@ -183,40 +248,40 @@ export default function Home() {
 
   return <main className="shell">
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
-    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
+    <aside id="primary-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
-      <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button></nav>
+      <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => openSettings(null)}><Settings2 size={17} />Application management</button></nav>
       <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
     </aside>
     <section className="content">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
+      <header className="topbar"><button type="button" className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
       <div className="main-inner">
-        <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div><div className="welcome-actions"><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
-        <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={formatPercent(overview.cpu)} detail={`${overview.cpuCores || "—"} logical cores · live`} progress={overview.cpu} tone="green" href="/processor" /><StatCard icon={HardDrive} label="Storage used" value={formatPercent(overview.storage)} detail={`${overview.storageUsed} of ${overview.storageTotal}`} progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={formatPercent(overview.memory)} detail={`${overview.memoryUsed} of ${overview.memoryTotal}`} progress={overview.memory} tone="blue" href="/memory" /></section>
-        <section className="apps-section"><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{apps.length}</span></div></div></div>
-          <div className="toolbar"><div className="search-box"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." /><kbd>⌘ K</kbd></div><div className="filters">{categories.map((item) => <button key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" />}</button>)}</div></div>
+        <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div><div className="welcome-actions"><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div></section>
+        <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Gauge} label="System uptime" value={overview?.uptime || "—"} detail={overviewDetail} tone="purple" loading={overviewRefreshing} /><StatCard icon={Cpu} label="Processor" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" loading={overviewRefreshing} /><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
+        <section className="apps-section" aria-busy={appsLoading}><div className="section-heading"><div><div className="section-title-row"><h2>Your applications</h2><span className="count-pill">{appsLoading ? "—" : apps.length}</span></div></div></div>
+          <div className="toolbar"><div className="search-box"><Search size={18} aria-hidden="true" /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." aria-label="Search applications" /><kbd>{searchShortcut}</kbd></div><div className="filters-viewport" role="group" aria-label="Application category filters"><div className="filters">{categories.map((item) => <button type="button" key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)} aria-pressed={category === item}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" aria-hidden="true" />}</button>)}</div></div></div>
           <AnimatePresence mode="wait" initial={false}>
-            {visibleApps.length ? <motion.div key="app-grid" className="app-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition}>
+            {appsLoading ? <motion.div key="apps-loading" className="empty-state" role="status" aria-live="polite" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><RefreshCw size={24} className="spin" aria-hidden="true" /><strong>Loading applications…</strong><span>Checking the application registry.</span></motion.div> : appsError ? <motion.div key="apps-error" className="empty-state" role="alert" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><TriangleAlert size={24} aria-hidden="true" /><strong>Applications unavailable</strong><span>{appsError}</span><button className="small-primary" onClick={() => void loadApps()}>Try again</button></motion.div> : visibleApps.length ? <motion.div key="app-grid" className="app-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition}>
               <AnimatePresence initial={false} mode="popLayout">
-                {visibleApps.map((app) => <motion.div key={app.id} className="app-card-motion" layout initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={motionTransition}><AppCard app={app} onEdit={() => { setEditing(app); setSettingsOpen(true); }} /></motion.div>)}
+                {visibleApps.map((app) => <motion.div key={app.id} className="app-card-motion" layout initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={motionTransition}><AppCard app={app} onEdit={() => openSettings(app)} /></motion.div>)}
               </AnimatePresence>
-              <button className="add-card" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><span><Plus size={21} /></span><strong>Add application</strong><small>Connect a new service</small></button>
+              <button type="button" className="add-card" onClick={() => openSettings(blankApp(apps.length))}><span><Plus size={21} /></span><strong>Add application</strong><small>Connect a new service</small></button>
             </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
           </AnimatePresence>
         </section>
-        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card"><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={{ background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` }}><div><strong>{formatPercent(overview.storage)}</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{overview.storageUsed}</b></div><div><span className="legend-dot gray-dot" />Available <b>{overview.storageAvailable}</b></div><div><span className="legend-dot blue-dot" />Total <b>{overview.storageTotal}</b></div></div></div></div></section>
+        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button type="button" className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} aria-hidden="true" /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>{storageStatus}</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{storageLegendValue(overview?.storageUsed)}</b></div><div><span className="legend-dot gray-dot" />Available <b>{storageLegendValue(overview?.storageAvailable)}</b></div><div><span className="legend-dot blue-dot" />Total <b>{storageLegendValue(overview?.storageTotal)}</b></div></div></div></div></section>
         <footer><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
       </div>
     </section>
     <AnimatePresence initial={false}>
-      {settingsOpen && <motion.div key="settings-panel" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={() => { setSettingsOpen(false); setEditing(null); }}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} onClose={() => { setSettingsOpen(false); setEditing(null); }} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
+      {settingsOpen && <motion.div key="settings-panel" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
     </AnimatePresence>
     {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
   </main>;
 }
 
 function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
-  return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}><div className="app-card-top"><span className="category-label">{app.category}</span><button className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} /></button></div><a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" />}</div><p>{app.description}</p></div></a><div className="app-card-bottom"><span className="status-label"><StatusDot status={app.status} />{statusCopy[app.status]}</span><span className="launch-link">Open <ExternalLink size={13} /></span></div></article>;
+  return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}><div className="app-card-top"><span className="category-label">{app.category}</span><button type="button" className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button></div><a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div><p>{app.description}</p></div></a><div className="app-card-bottom"><span className="status-label"><StatusDot status={app.status} />{statusCopy[app.status]}</span><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div></article>;
 }
 
 function ActivityRow({ activity }: { activity: ActivityEvent }) {
@@ -260,13 +325,49 @@ function formatRelativeTime(createdAt: string) {
 }
 
 function SettingsPanel({ apps, editing, deletingId, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; deletingId: string | null; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
-  return <aside className="settings-panel" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2>Dashboard settings</h2></div><button className="close-button" onClick={onClose}><X size={19} /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)}><Pencil size={15} /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></aside>;
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusableElements = Array.from(panelRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex=\"-1\"])")
+      );
+      if (!focusableElements.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [editing, onClose]);
+
+  return <aside ref={panelRef} className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">Application management</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close settings"><X size={19} aria-hidden="true" /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} isNew={!apps.some((app) => app.id === editing.id)} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></aside>;
 }
 
-function AppForm({ app, onCancel, onSave, onDelete }: { app: ManagedApp; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+function AppForm({ app, isNew, onCancel, onSave, onDelete }: { app: ManagedApp; isNew: boolean; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
   const [form, setForm] = useState(app); const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
-  const isNew = !seedApps.some((item) => item.id === app.id);
-  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}><button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button><div className="form-title"><AppIcon app={form} large /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div><label>Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label><label>Launch URL<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label><div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div><label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label><label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="https://..." /></label><label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label><label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)}><span /></button></label><div className="form-actions"><button type="button" className="button subtle" onClick={onCancel}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={() => { onDelete(form.id); onCancel(); }}><Trash2 size={15} />Delete</button>}<button type="submit" className="button primary"><Check size={16} />Save changes</button></div></form>;
+  const handleDelete = () => {
+    if (!window.confirm(`Delete ${form.name || "this application"}? This cannot be undone.`)) return;
+    onDelete(form.id);
+    onCancel();
+  };
+  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}><button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button><div className="form-title"><AppIcon app={form} large /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div><label>Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label><label>Launch URL<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label><div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div><label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label><label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="https://..." /></label><label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label><label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label><div className="form-actions"><button type="button" className="button subtle" onClick={onCancel}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary"><Check size={16} aria-hidden="true" />Save changes</button></div></form>;
 }
 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
