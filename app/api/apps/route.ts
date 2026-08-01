@@ -11,7 +11,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const app = (await request.json()) as ManagedApp;
   if (!app.id || !app.name || !app.url) return NextResponse.json({ error: "name and url are required" }, { status: 400 });
-  return NextResponse.json({ app: saveApp({ ...app, source: app.source || "manual" }) });
+  return NextResponse.json({ app: saveApp({ ...app, allowInsecureTls: app.allowInsecureTls === true, source: app.source || "manual" }) });
 }
 
 export async function DELETE(request: Request) {

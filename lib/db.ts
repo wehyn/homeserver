@@ -24,6 +24,7 @@ function getDatabase() {
         icon TEXT,
         color TEXT NOT NULL DEFAULT '#65e6a5',
         health_url TEXT,
+        allow_insecure_tls INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'unknown',
         source TEXT NOT NULL DEFAULT 'manual',
         is_favorite INTEGER NOT NULL DEFAULT 0,
@@ -31,6 +32,10 @@ function getDatabase() {
         sort_order INTEGER NOT NULL DEFAULT 0
       )
     `);
+    const appColumns = database.prepare("PRAGMA table_info(apps)").all() as { name?: unknown }[];
+    if (!appColumns.some((column) => column.name === "allow_insecure_tls")) {
+      database.exec("ALTER TABLE apps ADD COLUMN allow_insecure_tls INTEGER NOT NULL DEFAULT 0");
+    }
     database.exec(`
       CREATE TABLE IF NOT EXISTS activities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,8 +49,8 @@ function getDatabase() {
     database.exec("CREATE INDEX IF NOT EXISTS activities_created_at_idx ON activities (created_at DESC)");
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
-      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, status, source, is_favorite, is_visible, sort_order)
-        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @status, @source, @isFavorite, @isVisible, @sortOrder)`);
+      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order)
+        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder)`);
       database.exec("BEGIN");
       try {
         seedApps.forEach((app) => insert.run(toRow(app)));
@@ -60,14 +65,14 @@ function getDatabase() {
 }
 
 function toRow(app: ManagedApp) {
-  return { ...app, healthUrl: app.healthUrl ?? null, isFavorite: app.isFavorite ? 1 : 0, isVisible: app.isVisible ? 1 : 0 };
+  return { ...app, healthUrl: app.healthUrl ?? null, allowInsecureTls: app.allowInsecureTls ? 1 : 0, isFavorite: app.isFavorite ? 1 : 0, isVisible: app.isVisible ? 1 : 0 };
 }
 
 function fromRow(row: Record<string, unknown>): ManagedApp {
   return {
     id: String(row.id), name: String(row.name), description: String(row.description), category: String(row.category),
     url: String(row.url), icon: row.icon ? String(row.icon) : undefined, color: String(row.color),
-    healthUrl: row.health_url ? String(row.health_url) : undefined, status: row.status as ManagedApp["status"],
+    healthUrl: row.health_url ? String(row.health_url) : undefined, allowInsecureTls: Boolean(row.allow_insecure_tls), status: row.status as ManagedApp["status"],
     source: row.source as ManagedApp["source"], isFavorite: Boolean(row.is_favorite), isVisible: Boolean(row.is_visible), sortOrder: Number(row.sort_order),
   };
 }
@@ -76,12 +81,17 @@ export function listApps() {
   return (getDatabase().prepare("SELECT * FROM apps ORDER BY sort_order ASC, name ASC").all() as Record<string, unknown>[]).map(fromRow);
 }
 
+export function findApp(id: string) {
+  const row = getDatabase().prepare("SELECT * FROM apps WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  return row ? fromRow(row) : undefined;
+}
+
 export function saveApp(app: ManagedApp) {
   const database = getDatabase();
   const existing = database.prepare("SELECT id FROM apps WHERE id = ?").get(app.id);
-  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, status, source, is_favorite, is_visible, sort_order)
-    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @status, @source, @isFavorite, @isVisible, @sortOrder)
-    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder`).run(toRow(app));
+  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order)
+    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder)
+    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder`).run(toRow(app));
   recordActivity(existing ? "app-updated" : "app-created", app.id, app.name);
   return app;
 }

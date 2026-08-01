@@ -11,6 +11,7 @@ export type ManagedApp = {
   icon?: string;
   color: string;
   healthUrl?: string;
+  allowInsecureTls?: boolean;
   status: AppStatus;
   source: AppSource;
   isFavorite: boolean;
