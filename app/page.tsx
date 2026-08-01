@@ -93,6 +93,8 @@ export default function Home() {
   const [searchShortcut, setSearchShortcut] = useState("⌘ K");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
+  const mobileMenuRef = useRef<HTMLButtonElement>(null);
+  const mobileSidebarCloseRef = useRef<HTMLButtonElement>(null);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
@@ -106,6 +108,11 @@ export default function Home() {
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setEditing(null);
+  }, []);
+
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    mobileMenuRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -123,9 +130,17 @@ export default function Home() {
   useEffect(() => {
     if (settingsOpen) return;
     const trigger = settingsTriggerRef.current;
-    if (trigger?.isConnected) trigger.focus();
+    if (trigger?.isConnected) {
+      const mobileSidebarIsClosed = trigger.closest("#primary-navigation") && window.matchMedia("(max-width: 800px)").matches && !sidebarOpen;
+      if (mobileSidebarIsClosed) mobileMenuRef.current?.focus();
+      else trigger.focus();
+    }
     settingsTriggerRef.current = null;
-  }, [settingsOpen]);
+  }, [settingsOpen, sidebarOpen]);
+
+  useEffect(() => {
+    if (sidebarOpen && window.matchMedia("(max-width: 800px)").matches) mobileSidebarCloseRef.current?.focus();
+  }, [sidebarOpen]);
 
   useEffect(() => {
     const updateDate = () => setCurrentDate(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date()));
@@ -249,12 +264,13 @@ export default function Home() {
   return <main className="shell">
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
     <aside id="primary-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
-      <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
-      <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => openSettings(null)}><Settings2 size={17} />Application management</button></nav>
+      <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span><button type="button" ref={mobileSidebarCloseRef} className="mobile-sidebar-close" onClick={closeSidebar} aria-label="Close navigation menu"><X size={19} aria-hidden="true" /></button></div>
+      <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active" onClick={closeSidebar}><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => { setSidebarOpen(false); openSettings(null); }}><Settings2 size={17} />Application management</button></nav>
       <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
     </aside>
+    {sidebarOpen && <button type="button" className="sidebar-backdrop" onClick={closeSidebar} aria-label="Close navigation menu" />}
     <section className="content">
-      <header className="topbar"><button type="button" className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
+      <header className="topbar"><button type="button" ref={mobileMenuRef} className="mobile-menu" onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div><div className="welcome-actions"><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div></section>
         <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Gauge} label="System uptime" value={overview?.uptime || "—"} detail={overviewDetail} tone="purple" loading={overviewRefreshing} /><StatCard icon={Cpu} label="Processor" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" loading={overviewRefreshing} /><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
