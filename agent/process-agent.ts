@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, readdir } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { collectDockerSnapshot } from "./docker-discovery.ts";
+import { collectHostTelemetry } from "./host-telemetry.ts";
 
 type ProcessRecord = {
   pid: number;
@@ -66,6 +68,7 @@ const procRoot = process.env.PROC_ROOT || "/host/proc";
 const passwdPath = process.env.PASSWD_PATH || "/host/etc/passwd";
 const port = Number(process.env.AGENT_PORT || 8787);
 const sharedToken = process.env.MEMORY_AGENT_TOKEN || "";
+const dockerAgentToken = process.env.DOCKER_AGENT_TOKEN || sharedToken;
 let previousCpuSample: CpuSample | undefined;
 
 export async function collectSnapshot(
@@ -325,9 +328,10 @@ function toPercent(value: number) {
   return Number(Math.max(0, value).toFixed(2));
 }
 
-function isAuthorized(request: IncomingMessage) {
-  if (!sharedToken) return true;
-  return request.headers.authorization === `Bearer ${sharedToken}`;
+function isAuthorized(request: IncomingMessage, pathname: string) {
+  const token = pathname === "/v1/docker/containers" || pathname === "/v1/host/telemetry" ? dockerAgentToken : sharedToken;
+  if (!token) return true;
+  return request.headers.authorization === `Bearer ${token}`;
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
@@ -342,18 +346,25 @@ export function startServer() {
       return;
     }
 
-    if (request.method !== "GET" || !["/v1/memory/processes", "/v1/processor/processes"].includes(request.url || "")) {
+    const pathname = new URL(request.url || "/", "http://localhost").pathname;
+    if (request.method !== "GET" || !["/v1/memory/processes", "/v1/processor/processes", "/v1/docker/containers", "/v1/host/telemetry"].includes(pathname)) {
       sendJson(response, 404, { error: "Not found" });
       return;
     }
 
-    if (!isAuthorized(request)) {
+    if (!isAuthorized(request, pathname)) {
       sendJson(response, 401, { error: "Unauthorized" });
       return;
     }
 
     try {
-      const data = request.url === "/v1/processor/processes" ? await collectProcessorSnapshot() : await collectSnapshot();
+      const data = pathname === "/v1/processor/processes"
+        ? await collectProcessorSnapshot()
+        : pathname === "/v1/docker/containers"
+          ? await collectDockerSnapshot()
+          : pathname === "/v1/host/telemetry"
+            ? await collectHostTelemetry()
+          : await collectSnapshot();
       sendJson(response, 200, data);
     } catch (error) {
       sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to collect system metrics" });

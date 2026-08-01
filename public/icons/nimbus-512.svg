@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 192 192" role="img" aria-labelledby="title">
+  <title id="title">Nimbus</title>
+  <rect width="192" height="192" rx="42" fill="#0c0e13"/>
+  <path d="M48 122V70l48-28 48 28v52l-48 28-48-28Z" fill="#191d27" stroke="#65e6a5" stroke-width="8" stroke-linejoin="round"/>
+  <path d="m48 70 48 28 48-28M96 98v52" fill="none" stroke="#65e6a5" stroke-width="8" stroke-linejoin="round"/>
+</svg>
