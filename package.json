@@ -8,7 +8,7 @@
     "build:agent": "tsc -p agent/tsconfig.json",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test agent/*.test.ts"
+    "test": "node --experimental-strip-types --test agent/*.test.ts lib/notifications.test.ts"
   },
   "dependencies": {
     "framer-motion": "^12.43.0",

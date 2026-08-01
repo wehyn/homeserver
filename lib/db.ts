@@ -9,7 +9,7 @@ import type { ActivityEvent, ActivityType, AppStatus, ManagedApp } from "./types
 const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "nimbus.db");
 let database: DatabaseSync | undefined;
 
-function getDatabase() {
+export function getDatabase() {
   if (!database) {
     fs.mkdirSync(path.dirname(databasePath), { recursive: true });
     database = new DatabaseSync(databasePath);
@@ -47,6 +47,87 @@ function getDatabase() {
       )
     `);
     database.exec("CREATE INDEX IF NOT EXISTS activities_created_at_idx ON activities (created_at DESC)");
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS service_status_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('online', 'degraded', 'offline', 'unknown')),
+        latency_ms INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
+        observed_at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'health',
+        recorded_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS service_status_history_service_observed_idx
+        ON service_status_history (service_id, observed_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS service_latency_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_id TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('online', 'degraded', 'offline', 'unknown')),
+        latency_ms INTEGER NOT NULL CHECK (latency_ms >= 0),
+        observed_at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'health',
+        recorded_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS service_latency_observations_service_observed_idx
+        ON service_latency_observations (service_id, observed_at DESC, id DESC);
+
+      CREATE TABLE IF NOT EXISTS service_dependencies (
+        service_id TEXT NOT NULL,
+        depends_on_service_id TEXT NOT NULL,
+        label TEXT,
+        is_critical INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (service_id, depends_on_service_id),
+        CHECK (service_id <> depends_on_service_id)
+      );
+      CREATE INDEX IF NOT EXISTS service_dependencies_dependency_idx
+        ON service_dependencies (depends_on_service_id, service_id);
+
+      CREATE TABLE IF NOT EXISTS service_container_state (
+        service_id TEXT PRIMARY KEY,
+        container_id TEXT,
+        container_name TEXT,
+        state TEXT NOT NULL CHECK (state IN ('created', 'running', 'paused', 'restarting', 'exited', 'dead', 'unknown')),
+        health_status TEXT NOT NULL DEFAULT 'unknown' CHECK (health_status IN ('healthy', 'unhealthy', 'starting', 'none', 'unknown')),
+        image TEXT,
+        restart_count INTEGER NOT NULL DEFAULT 0 CHECK (restart_count >= 0),
+        started_at TEXT,
+        finished_at TEXT,
+        observed_at TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'agent',
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS service_backup_metadata (
+        service_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK (status IN ('success', 'warning', 'failed', 'in-progress', 'unknown', 'never')),
+        last_backup_at TEXT,
+        provider TEXT,
+        reference TEXT,
+        message TEXT,
+        observed_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS docker_resource_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        container_id TEXT NOT NULL,
+        service_id TEXT,
+        container_name TEXT NOT NULL,
+        observed_at TEXT NOT NULL,
+        cpu_percent REAL,
+        memory_usage_bytes INTEGER,
+        memory_limit_bytes INTEGER,
+        memory_percent REAL,
+        network_rx_bytes INTEGER,
+        network_tx_bytes INTEGER,
+        pids INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS docker_resource_history_container_observed_idx
+        ON docker_resource_history (container_id, observed_at DESC, id DESC);
+    `);
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
       const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order)
