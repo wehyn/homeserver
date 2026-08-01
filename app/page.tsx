@@ -44,7 +44,8 @@ function getStatusSummary(apps: ManagedApp[], refreshing: boolean): StatusSummar
   const onlineCount = apps.filter((app) => app.status === "online").length;
   const detail = `${onlineCount} of ${apps.length} services online`;
   if (!apps.length) return { status: "unknown", title: "No services configured", detail, loading: false };
-  if (refreshing || apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Checking service status", detail, loading: true };
+  if (refreshing) return { status: "unknown", title: "Checking service status", detail, loading: true };
+  if (apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Service status unavailable", detail, loading: false };
   if (apps.some((app) => app.status === "offline")) return { status: "offline", title: "Some services offline", detail, loading: false };
   if (apps.some((app) => app.status === "degraded")) return { status: "degraded", title: "Some services degraded", detail, loading: false };
   return { status: "online", title: "All systems nominal", detail, loading: false };
@@ -83,6 +84,7 @@ export default function Home() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
+  const activeHealthRefreshesRef = useRef(0);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
@@ -129,19 +131,24 @@ export default function Home() {
   const refreshHealth = useCallback(async () => {
     const checkedApps = appsRef.current.filter((app) => app.healthUrl || app.url);
     if (!checkedApps.length) return;
+    activeHealthRefreshesRef.current += 1;
     setRefreshing(true);
-    const results = await Promise.all(checkedApps.map(async (app) => {
-      const healthTarget = app.healthUrl || app.url;
-      const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}&url=${encodeURIComponent(healthTarget)}`).catch(() => null);
-      const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
-      return { id: app.id, status: result.status as AppStatus };
-    }));
-    setApps((current) => current.map((app) => {
-      const result = results.find((item) => item.id === app.id);
-      return result ? { ...app, status: result.status } : app;
-    }));
-    void refreshActivities();
-    setRefreshing(false);
+    try {
+      const results = await Promise.all(checkedApps.map(async (app) => {
+        const healthTarget = app.healthUrl || app.url;
+        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}&url=${encodeURIComponent(healthTarget)}`).catch(() => null);
+        const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
+        return { id: app.id, status: result.status as AppStatus };
+      }));
+      setApps((current) => current.map((app) => {
+        const result = results.find((item) => item.id === app.id);
+        return result ? { ...app, status: result.status } : app;
+      }));
+      void refreshActivities();
+    } finally {
+      activeHealthRefreshesRef.current -= 1;
+      setRefreshing(activeHealthRefreshesRef.current > 0);
+    }
   }, [refreshActivities]);
 
   useEffect(() => {
