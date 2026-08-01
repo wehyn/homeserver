@@ -33,6 +33,23 @@ function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props
 const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
+type StatusSummary = {
+  status: AppStatus;
+  title: string;
+  detail: string;
+  loading: boolean;
+};
+
+function getStatusSummary(apps: ManagedApp[], refreshing: boolean): StatusSummary {
+  const onlineCount = apps.filter((app) => app.status === "online").length;
+  const detail = `${onlineCount} of ${apps.length} services online`;
+  if (!apps.length) return { status: "unknown", title: "No services configured", detail, loading: false };
+  if (refreshing || apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Checking service status", detail, loading: true };
+  if (apps.some((app) => app.status === "offline")) return { status: "offline", title: "Some services offline", detail, loading: false };
+  if (apps.some((app) => app.status === "degraded")) return { status: "degraded", title: "Some services degraded", detail, loading: false };
+  return { status: "online", title: "All systems nominal", detail, loading: false };
+}
+
 function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
   const Icon = iconPalette[app.id] || LayoutGrid;
   return <div className={`app-icon ${large ? "app-icon-large" : ""}`} style={{ "--app-color": app.color } as React.CSSProperties}>
@@ -139,7 +156,7 @@ export default function Home() {
     return app.isVisible && matchQuery && matchCategory;
   }), [apps, category, query]);
 
-  const onlineCount = apps.filter((app) => app.status === "online").length;
+  const statusSummary = getStatusSummary(apps, refreshing);
 
   async function saveApp(app: ManagedApp) {
     setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? app : item) : [...current, app]);
@@ -162,7 +179,7 @@ export default function Home() {
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
       <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button></nav>
-      <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div></div>
+      <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
