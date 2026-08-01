@@ -14,3 +14,7 @@ data/*.db-journal
 coverage/
 .nyc_output/
 .vercel/
+.agent-worktrees/
+.review-fixes/
+.playwright-cli/
+verify.png
