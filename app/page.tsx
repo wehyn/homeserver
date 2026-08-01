@@ -33,6 +33,25 @@ function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props
 const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
+type StatusSummary = {
+  status: AppStatus;
+  title: string;
+  detail: string;
+  loading: boolean;
+};
+
+function getStatusSummary(apps: ManagedApp[], appsLoading: boolean, appsError: string, refreshing: boolean): StatusSummary {
+  const onlineCount = apps.filter((app) => app.status === "online").length;
+  if (appsLoading) return { status: "unknown", title: "Loading services", detail: "Loading application registry", loading: true };
+  if (appsError) return { status: "unknown", title: "Services unavailable", detail: "Application registry unavailable", loading: false };
+  const detail = `${onlineCount} of ${apps.length} services online`;
+  if (!apps.length) return { status: "unknown", title: "No services configured", detail, loading: false };
+  if (refreshing || apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Checking service status", detail, loading: true };
+  if (apps.some((app) => app.status === "offline")) return { status: "offline", title: "Some services offline", detail, loading: false };
+  if (apps.some((app) => app.status === "degraded")) return { status: "degraded", title: "Some services degraded", detail, loading: false };
+  return { status: "online", title: "All systems nominal", detail, loading: false };
+}
+
 function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
   const Icon = iconPalette[app.id] || LayoutGrid;
   return <div className={`app-icon ${large ? "app-icon-large" : ""}`} style={{ "--app-color": app.color } as React.CSSProperties}>
@@ -161,15 +180,18 @@ export default function Home() {
     return app.isVisible && matchQuery && matchCategory;
   }), [apps, category, query]);
 
-  const onlineCount = apps.filter((app) => app.status === "online").length;
+  const statusSummary = getStatusSummary(apps, appsLoading, appsError, refreshing);
   const overviewDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? "Since last restart" : "Loading system metrics…";
   const processorDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.cpuCores} logical cores · live` : "Loading system metrics…";
   const storageDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading system metrics…";
   const memoryDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.memoryUsed} of ${overview.memoryTotal}` : "Loading system metrics…";
+  const storageStatus = overviewError ? (overview ? "stale" : "unavailable") : overview ? "used" : "loading";
+  const storageLegendValue = (value?: string) => !overview || !value ? "—" : overviewError ? `${value} · stale` : value;
 
   async function saveApp(app: ManagedApp) {
     setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? app : item) : [...current, app]);
     await fetch("/api/apps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(app) }).catch(() => undefined);
+    setAppsError("");
     await refreshActivities();
     setEditing(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2200);
   }
@@ -188,7 +210,7 @@ export default function Home() {
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
       <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button></nav>
-      <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div></div>
+      <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
     </aside>
     <section className="content">
       <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
@@ -206,7 +228,7 @@ export default function Home() {
             </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
           </AnimatePresence>
         </section>
-        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>used</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{overview?.storageUsed || "—"}</b></div><div><span className="legend-dot gray-dot" />Available <b>{overview?.storageAvailable || "—"}</b></div><div><span className="legend-dot blue-dot" />Total <b>{overview?.storageTotal || "—"}</b></div></div></div></div></section>
+        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>{storageStatus}</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{storageLegendValue(overview?.storageUsed)}</b></div><div><span className="legend-dot gray-dot" />Available <b>{storageLegendValue(overview?.storageAvailable)}</b></div><div><span className="legend-dot blue-dot" />Total <b>{storageLegendValue(overview?.storageTotal)}</b></div></div></div></div></section>
         <footer><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
       </div>
     </section>
