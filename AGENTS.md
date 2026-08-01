@@ -154,6 +154,8 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
 - If the execution shell cannot resolve `node` or `npm`, verify the user shell’s PATH before
   treating Node.js as unavailable; use the project’s Node 24 Docker environment as a fallback and
   report the shell-environment mismatch.
+- Stop any running `next dev` server before `npm run build`, then restart it afterward; concurrent
+  access to the shared `.next/` output can corrupt the development server state.
 
 ## Security & Compliance
 
