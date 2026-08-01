@@ -29,4 +29,4 @@ Memory and Processor pages poll the agent only while they are open.
 
 ## Connecting an app
 
-Use **Add application** in the dashboard. Each app can have a launch URL, category, icon URL, and optional health URL. The registry is stored in SQLite on the server. Docker Compose label discovery is reserved for the next integration pass; the socket mount is commented in `docker-compose.yml` until that is enabled.
+Use **Add application** in the dashboard. Each app can have a launch URL, category, icon URL, and optional health URL. For a trusted private service that uses a self-signed HTTPS certificate, enable **Allow self-signed TLS** in that app's settings; this only affects its server-side health check and is disabled by default. The registry is stored in SQLite on the server. Docker Compose label discovery is reserved for the next integration pass; the socket mount is commented in `docker-compose.yml` until that is enabled.
