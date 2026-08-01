@@ -63,7 +63,6 @@ export default function Home() {
   const [savedNotice, setSavedNotice] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [overviewRefreshing, setOverviewRefreshing] = useState(false);
-  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
@@ -124,7 +123,6 @@ export default function Home() {
       const result = results.find((item) => item.id === app.id);
       return result ? { ...app, status: result.status } : app;
     }));
-    setLastCheckedAt(new Date());
     void refreshActivities();
     setRefreshing(false);
   }, [refreshActivities]);
@@ -163,12 +161,11 @@ export default function Home() {
     <div className="ambient ambient-one" /><div className="ambient ambient-two" />
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
-      <div className="server-switcher"><div className="server-avatar">H</div><div><strong>Home server</strong><small>Online · 192.168.2.116</small><small>Tailscale · 100.123.45.66</small></div><ChevronDown size={15} /></div>
-      <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><button className="nav-item" onClick={() => { setCategory("All apps"); setSidebarOpen(false); }}><GridIcon />All applications<span className="nav-count">{apps.length}</span></button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button></nav>
+      <nav><p className="nav-label">Workspace</p><button className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button className="nav-item" onClick={() => setSettingsOpen(true)}><Settings2 size={17} />Dashboard settings</button></nav>
       <div className="sidebar-bottom"><div className="status-summary"><span className="live-pulse" /><div><strong>All systems nominal</strong><small>{onlineCount} of {apps.length} services online</small></div></div></div>
     </aside>
     <section className="content">
-      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><span className="last-sync"><span className="sync-dot" />Live metrics · 30 sec{overview.updatedAt ? ` · ${new Date(overview.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}{lastCheckedAt ? ` · health ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)}><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title="Refresh metrics and service health" aria-label="Refresh metrics and service health"><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button className="icon-button"><BellIcon /></button><button className="avatar-button">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div><div className="welcome-actions"><button className="button primary" onClick={() => { setEditing(blankApp(apps.length)); setSettingsOpen(true); }}><Plus size={17} />Add application</button></div></section>
         <section className="overview-grid"><StatCard icon={Gauge} label="System uptime" value={overview.uptime} detail="Since last restart" tone="purple" /><StatCard icon={Cpu} label="Processor" value={formatPercent(overview.cpu)} detail={`${overview.cpuCores || "—"} logical cores · live`} progress={overview.cpu} tone="green" href="/processor" /><StatCard icon={HardDrive} label="Storage used" value={formatPercent(overview.storage)} detail={`${overview.storageUsed} of ${overview.storageTotal}`} progress={overview.storage} tone="orange" /><StatCard icon={Database} label="Memory" value={formatPercent(overview.memory)} detail={`${overview.memoryUsed} of ${overview.memoryTotal}`} progress={overview.memory} tone="blue" href="/memory" /></section>
@@ -249,6 +246,5 @@ function AppForm({ app, onCancel, onSave, onDelete }: { app: ManagedApp; onCance
 }
 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
-function GridIcon() { return <span className="grid-icon"><i /><i /><i /><i /></span>; }
 function BellIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>; }
 function formatPercent(value: number) { return `${value.toFixed(2)}%`; }
