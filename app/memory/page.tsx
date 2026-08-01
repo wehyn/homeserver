@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpDown, Database, RefreshCw, TriangleAlert } from "lucide-react";
+import { ThemeToggle } from "@/app/theme-toggle";
 import type { MemoryProcess, MemorySnapshot } from "@/lib/types";
 
 type SortKey = "name" | "command" | "pid" | "user" | "rssBytes" | "memoryPercent";
@@ -65,9 +66,8 @@ export default function MemoryPage() {
   }
 
   return <main className="shell memory-shell">
-    <div className="ambient ambient-one" /><div className="ambient ambient-two" />
     <section className="content memory-content">
-      <header className="topbar"><div className="breadcrumb"><Link href="/">Workspace</Link><span>/</span><strong>Memory</strong></div><div className="top-actions"><span className="last-sync" role="status" aria-live="polite">{error ? <TriangleAlert size={12} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={12} className="spin" aria-hidden="true" />}{error ? "Memory unavailable" : snapshot ? `Updated ${formatTime(snapshot.updatedAt)}` : "Loading memory"}</span><button className="icon-button" onClick={() => void refresh()} title={error ? "Retry memory details" : "Refresh memory details"} aria-label={error ? "Retry memory details" : "Refresh memory details"}><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><button className="avatar-button">D</button></div></header>
+      <header className="topbar"><div className="breadcrumb"><Link href="/">Workspace</Link><span>/</span><strong>Memory</strong></div><div className="top-actions"><span className="last-sync" role="status" aria-live="polite">{error ? <TriangleAlert size={12} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={12} className="spin" aria-hidden="true" />}{error ? "Memory unavailable" : snapshot ? `Updated ${formatTime(snapshot.updatedAt)}` : "Loading memory"}</span><button className="icon-button" onClick={() => void refresh()} title={error ? "Retry memory details" : "Refresh memory details"} aria-label={error ? "Retry memory details" : "Refresh memory details"}><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><ThemeToggle /><button className="avatar-button">D</button></div></header>
       <div className="main-inner memory-inner">
         <div className="memory-page-heading"><div><Link className="back-link" href="/"><ArrowLeft size={14} />Overview</Link><p className="eyebrow">System detail</p><h1>Memory</h1><p className="subheading">Host processes using RAM on this device.</p></div><div className="memory-refresh-note" role="status" aria-live="polite" aria-busy={!snapshot && !error}>{error ? <TriangleAlert size={14} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={14} className="spin" aria-hidden="true" />}{error ? "Unavailable" : snapshot ? "Live · 5 sec" : "Loading…"}</div></div>
         {snapshot && <section className="memory-summary"><MemorySummary label="Used" value={formatBytes(snapshot.usedBytes)} detail={`${snapshot.usedPercent}% of total`} tone="blue" /><MemorySummary label="Available" value={formatBytes(snapshot.availableBytes)} detail="Ready for workloads" tone="green" /><MemorySummary label="Total" value={formatBytes(snapshot.totalBytes)} detail={`${snapshot.processes.length} readable processes`} tone="purple" /></section>}
