@@ -9,9 +9,12 @@ services:
       DATABASE_PATH: /app/data/nimbus.db
       MEMORY_AGENT_URL: http://metrics-agent:8787
       MEMORY_AGENT_TOKEN: ${MEMORY_AGENT_TOKEN:-}
+      DOCKER_AGENT_URL: ${DOCKER_AGENT_URL:-http://metrics-agent:8787}
+      DOCKER_AGENT_TOKEN: ${DOCKER_AGENT_TOKEN:-}
+      NIMBUS_NOTIFICATION_WEBHOOK_URL: ${NIMBUS_NOTIFICATION_WEBHOOK_URL:-}
     volumes:
       - nimbus-data:/app/data
-      # Uncomment to enable future Docker Compose discovery.
+      # Do not mount the Docker socket here. Configure the separate read-only adapter instead.
       # - /var/run/docker.sock:/var/run/docker.sock:ro
 
   metrics-agent:
@@ -23,6 +26,11 @@ services:
     environment:
       AGENT_PORT: 8787
       MEMORY_AGENT_TOKEN: ${MEMORY_AGENT_TOKEN:-}
+      # This must point to a separately deployed, narrowly scoped read-only Docker API adapter.
+      # The metrics agent intentionally has no Docker socket mount.
+      DOCKER_DISCOVERY_URL: ${DOCKER_DISCOVERY_URL:-}
+      DOCKER_DISCOVERY_TOKEN: ${DOCKER_DISCOVERY_TOKEN:-}
+      DOCKER_AGENT_TOKEN: ${DOCKER_AGENT_TOKEN:-}
     volumes:
       - type: bind
         source: /proc
@@ -31,6 +39,18 @@ services:
       - type: bind
         source: /etc/passwd
         target: /host/etc/passwd
+        read_only: true
+      - type: bind
+        source: /sys/class/thermal
+        target: /host/sys/class/thermal
+        read_only: true
+      - type: bind
+        source: /sys/class/net
+        target: /host/sys/class/net
+        read_only: true
+      - type: bind
+        source: /sys/block
+        target: /host/sys/block
         read_only: true
 
 volumes:
