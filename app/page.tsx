@@ -46,7 +46,8 @@ function getStatusSummary(apps: ManagedApp[], appsLoading: boolean, appsError: s
   if (appsError) return { status: "unknown", title: "Services unavailable", detail: "Application registry unavailable", loading: false };
   const detail = `${onlineCount} of ${apps.length} services online`;
   if (!apps.length) return { status: "unknown", title: "No services configured", detail, loading: false };
-  if (refreshing || apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Checking service status", detail, loading: true };
+  if (refreshing) return { status: "unknown", title: "Checking service status", detail, loading: true };
+  if (apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Service status unavailable", detail, loading: false };
   if (apps.some((app) => app.status === "offline")) return { status: "offline", title: "Some services offline", detail, loading: false };
   if (apps.some((app) => app.status === "degraded")) return { status: "degraded", title: "Some services degraded", detail, loading: false };
   return { status: "online", title: "All systems nominal", detail, loading: false };
@@ -88,6 +89,7 @@ export default function Home() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
+  const activeHealthRefreshesRef = useRef(0);
   const [searchShortcut, setSearchShortcut] = useState("⌘ K");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
@@ -186,19 +188,24 @@ export default function Home() {
   const refreshHealth = useCallback(async () => {
     const checkedApps = appsRef.current.filter((app) => app.healthUrl || app.url);
     if (!checkedApps.length) return;
+    activeHealthRefreshesRef.current += 1;
     setRefreshing(true);
-    const results = await Promise.all(checkedApps.map(async (app) => {
-      const healthTarget = app.healthUrl || app.url;
-      const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}&url=${encodeURIComponent(healthTarget)}`).catch(() => null);
-      const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
-      return { id: app.id, status: result.status as AppStatus };
-    }));
-    setApps((current) => current.map((app) => {
-      const result = results.find((item) => item.id === app.id);
-      return result ? { ...app, status: result.status } : app;
-    }));
-    void refreshActivities();
-    setRefreshing(false);
+    try {
+      const results = await Promise.all(checkedApps.map(async (app) => {
+        const healthTarget = app.healthUrl || app.url;
+        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}&url=${encodeURIComponent(healthTarget)}`).catch(() => null);
+        const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
+        return { id: app.id, status: result.status as AppStatus };
+      }));
+      setApps((current) => current.map((app) => {
+        const result = results.find((item) => item.id === app.id);
+        return result ? { ...app, status: result.status } : app;
+      }));
+      void refreshActivities();
+    } finally {
+      activeHealthRefreshesRef.current -= 1;
+      setRefreshing(activeHealthRefreshesRef.current > 0);
+    }
   }, [refreshActivities]);
 
   useEffect(() => {
@@ -244,7 +251,7 @@ export default function Home() {
     <aside id="primary-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span></div>
       <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active"><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => openSettings(null)}><Settings2 size={17} />Application management</button></nav>
-      <div className={`sidebar-bottom`}><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
+      <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
     </aside>
     <section className="content">
       <header className="topbar"><button type="button" className="mobile-menu" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
@@ -262,7 +269,6 @@ export default function Home() {
             </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
           </AnimatePresence>
         </section>
-        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>{storageStatus}</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{storageLegendValue(overview?.storageUsed)}</b></div><div><span className="legend-dot gray-dot" />Available <b>{storageLegendValue(overview?.storageAvailable)}</b></div><div><span className="legend-dot blue-dot" />Total <b>{storageLegendValue(overview?.storageTotal)}</b></div></div></div></div></section>
         <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button type="button" className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} aria-hidden="true" /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, rgba(255,255,255,.09) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>{storageStatus}</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{storageLegendValue(overview?.storageUsed)}</b></div><div><span className="legend-dot gray-dot" />Available <b>{storageLegendValue(overview?.storageAvailable)}</b></div><div><span className="legend-dot blue-dot" />Total <b>{storageLegendValue(overview?.storageTotal)}</b></div></div></div></div></section>
         <footer><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
       </div>

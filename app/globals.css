@@ -1,5 +1,12 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
 
+.status-summary.status-summary-degraded { border-color: rgba(255,184,107,.2); background: rgba(255,184,107,.07); }
+.status-summary.status-summary-offline { border-color: rgba(244,119,139,.2); background: rgba(244,119,139,.07); }
+.status-summary.status-summary-unknown { border-color: rgba(142,151,167,.2); background: rgba(142,151,167,.06); }
+.status-summary .live-pulse.status-degraded { background: var(--orange); box-shadow: 0 0 0 3px rgba(255,184,107,.1); }
+.status-summary .live-pulse.status-offline { background: #f4778b; box-shadow: 0 0 0 3px rgba(244,119,139,.1); }
+.status-summary .live-pulse.status-unknown { background: var(--muted-2); box-shadow: 0 0 0 3px rgba(99,108,125,.14); }
+
 :root { --bg: #0c0e13; --panel: rgba(25, 29, 39, .72); --panel-solid: #191d27; --panel-soft: rgba(255,255,255,.045); --line: rgba(255,255,255,.08); --text: #f3f5f7; --muted: #8e97a7; --muted-2: #636c7d; --accent: #65e6a5; --accent-deep: #38b779; --purple: #a98cff; --blue: #8bd6ff; --orange: #ffb86b; }
 * { box-sizing: border-box; } html { background: var(--bg); } body { margin: 0; background: var(--bg); color: var(--text); font-family: 'Manrope', sans-serif; font-size: 14px; -webkit-font-smoothing: antialiased; } button, input, select { font: inherit; } button { color: inherit; cursor: pointer; } a { color: inherit; text-decoration: none; }
 .shell { min-height: 100vh; display: flex; overflow: hidden; background: radial-gradient(ellipse 55% 50% at 86% 0%, rgba(43,81,80,.16), transparent 72%), radial-gradient(ellipse 40% 45% at 50% 100%, rgba(54,44,101,.11), transparent 72%), #0c0e13; position: relative; }
