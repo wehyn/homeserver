@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { HardwareSampler, calculatePower } from "./hardware.ts";
 import { calculateCpuPercent, calculateProcessCpuPercent, collectProcessorSnapshot, collectSnapshot, sanitizeCommand } from "./process-agent.ts";
 
 test("collectSnapshot reads memory and sorts processes by RSS", async () => {
@@ -93,4 +94,44 @@ test("CPU percentages use total system CPU as the denominator", () => {
   assert.equal(calculateCpuPercent(200, 50), 75);
   assert.equal(calculateProcessCpuPercent(50, 200), 25);
   assert.equal(calculateProcessCpuPercent(-10, 200), 0);
+});
+
+test("HardwareSampler reads CPU temperature and derives RAPL watts from cached samples", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nimbus-hardware-"));
+  const thermalZone = join(root, "devices", "virtual", "thermal", "thermal_zone0");
+  const energyPath = join(root, "class", "powercap", "intel-rapl", "intel-rapl:0", "energy_uj");
+  await mkdir(thermalZone, { recursive: true });
+  await mkdir(join(root, "class", "powercap", "intel-rapl", "intel-rapl:0"), { recursive: true });
+  await writeFile(join(thermalZone, "type"), "x86_pkg_temp\n");
+  await writeFile(join(thermalZone, "temp"), "42500\n");
+  await writeFile(energyPath, "1000000\n");
+
+  let now = 10_000;
+  const sampler = new HardwareSampler(root, () => now);
+  try {
+    const first = await sampler.getSnapshot();
+    assert.equal(first.temperatureC, 43);
+    assert.equal(first.powerWatts, null);
+    assert.equal(first.powerSource, "intel-rapl");
+
+    await writeFile(energyPath, "1500000\n");
+    now += 2_000;
+    const cached = await sampler.getSnapshot();
+    assert.equal(cached.updatedAt, first.updatedAt);
+    assert.equal(cached.powerWatts, null);
+
+    await writeFile(thermalZone + "/temp", "44500\n");
+    now += 3_000;
+    const second = await sampler.getSnapshot();
+    assert.equal(second.temperatureC, 45);
+    assert.equal(second.powerWatts, 0.1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("power conversion rejects missing baselines and counter resets", () => {
+  assert.equal(calculatePower(1_000_000, undefined, 5_000), null);
+  assert.equal(calculatePower(500_000, { microjoules: 1_000_000, timestampMs: 0 }, 5_000), null);
+  assert.equal(calculatePower(1_500_000, { microjoules: 1_000_000, timestampMs: 0 }, 5_000), 0.1);
 });
