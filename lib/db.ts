@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { seedApps } from "./seed";
+import type { DockerContainer, DockerContainerState, DockerHealthState } from "./docker-discovery";
 import type { ActivityEvent, ActivityType, AppStatus, ManagedApp } from "./types";
 
 const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "nimbus.db");
@@ -29,13 +30,39 @@ function getDatabase() {
         source TEXT NOT NULL DEFAULT 'manual',
         is_favorite INTEGER NOT NULL DEFAULT 0,
         is_visible INTEGER NOT NULL DEFAULT 1,
-        sort_order INTEGER NOT NULL DEFAULT 0
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        docker_project TEXT,
+        docker_service TEXT,
+        container_id TEXT,
+        container_name TEXT,
+        container_image TEXT,
+        container_state TEXT NOT NULL DEFAULT 'unknown',
+        container_health TEXT NOT NULL DEFAULT 'unknown',
+        container_started_at TEXT,
+        container_observed_at TEXT,
+        casaos_scheme TEXT,
+        casaos_hostname TEXT,
+        casaos_port_map TEXT,
+        casaos_index TEXT
       )
     `);
     const appColumns = database.prepare("PRAGMA table_info(apps)").all() as { name?: unknown }[];
     if (!appColumns.some((column) => column.name === "allow_insecure_tls")) {
       database.exec("ALTER TABLE apps ADD COLUMN allow_insecure_tls INTEGER NOT NULL DEFAULT 0");
     }
+    addColumnIfMissing(database, appColumns, "docker_project", "TEXT");
+    addColumnIfMissing(database, appColumns, "docker_service", "TEXT");
+    addColumnIfMissing(database, appColumns, "container_id", "TEXT");
+    addColumnIfMissing(database, appColumns, "container_name", "TEXT");
+    addColumnIfMissing(database, appColumns, "container_image", "TEXT");
+    addColumnIfMissing(database, appColumns, "container_state", "TEXT NOT NULL DEFAULT 'unknown'");
+    addColumnIfMissing(database, appColumns, "container_health", "TEXT NOT NULL DEFAULT 'unknown'");
+    addColumnIfMissing(database, appColumns, "container_started_at", "TEXT");
+    addColumnIfMissing(database, appColumns, "container_observed_at", "TEXT");
+    addColumnIfMissing(database, appColumns, "casaos_scheme", "TEXT");
+    addColumnIfMissing(database, appColumns, "casaos_hostname", "TEXT");
+    addColumnIfMissing(database, appColumns, "casaos_port_map", "TEXT");
+    addColumnIfMissing(database, appColumns, "casaos_index", "TEXT");
     database.exec(`
       CREATE TABLE IF NOT EXISTS activities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,8 +76,8 @@ function getDatabase() {
     database.exec("CREATE INDEX IF NOT EXISTS activities_created_at_idx ON activities (created_at DESC)");
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
-      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order)
-        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder)`);
+      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
+        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)`);
       database.exec("BEGIN");
       try {
         seedApps.forEach((app) => insert.run(toRow(app)));
@@ -65,7 +92,26 @@ function getDatabase() {
 }
 
 function toRow(app: ManagedApp) {
-  return { ...app, healthUrl: app.healthUrl ?? null, allowInsecureTls: app.allowInsecureTls ? 1 : 0, isFavorite: app.isFavorite ? 1 : 0, isVisible: app.isVisible ? 1 : 0 };
+  return {
+    ...app,
+    healthUrl: app.healthUrl ?? null,
+    allowInsecureTls: app.allowInsecureTls ? 1 : 0,
+    isFavorite: app.isFavorite ? 1 : 0,
+    isVisible: app.isVisible ? 1 : 0,
+    dockerProject: app.dockerProject ?? null,
+    dockerService: app.dockerService ?? null,
+    containerId: app.containerId ?? null,
+    containerName: app.containerName ?? null,
+    containerImage: app.containerImage ?? null,
+    containerState: app.containerState ?? "unknown",
+    containerHealth: app.containerHealth ?? "unknown",
+    containerStartedAt: app.containerStartedAt ?? null,
+    containerObservedAt: app.containerObservedAt ?? null,
+    casaosScheme: app.casaosScheme ?? null,
+    casaosHostname: app.casaosHostname ?? null,
+    casaosPortMap: app.casaosPortMap ?? null,
+    casaosIndex: app.casaosIndex ?? null,
+  };
 }
 
 function fromRow(row: Record<string, unknown>): ManagedApp {
@@ -74,6 +120,19 @@ function fromRow(row: Record<string, unknown>): ManagedApp {
     url: String(row.url), icon: row.icon ? String(row.icon) : undefined, color: String(row.color),
     healthUrl: row.health_url ? String(row.health_url) : undefined, allowInsecureTls: Boolean(row.allow_insecure_tls), status: row.status as ManagedApp["status"],
     source: row.source as ManagedApp["source"], isFavorite: Boolean(row.is_favorite), isVisible: Boolean(row.is_visible), sortOrder: Number(row.sort_order),
+    dockerProject: row.docker_project ? String(row.docker_project) : undefined,
+    dockerService: row.docker_service ? String(row.docker_service) : undefined,
+    containerId: row.container_id ? String(row.container_id) : undefined,
+    containerName: row.container_name ? String(row.container_name) : undefined,
+    containerImage: row.container_image ? String(row.container_image) : undefined,
+    containerState: row.container_observed_at || row.container_state !== "unknown" ? normalizeContainerState(row.container_state) : undefined,
+    containerHealth: row.container_observed_at || row.container_health !== "unknown" ? normalizeContainerHealth(row.container_health) : undefined,
+    containerStartedAt: row.container_started_at ? String(row.container_started_at) : undefined,
+    containerObservedAt: row.container_observed_at ? String(row.container_observed_at) : undefined,
+    casaosScheme: row.casaos_scheme === "http" || row.casaos_scheme === "https" ? row.casaos_scheme : undefined,
+    casaosHostname: row.casaos_hostname ? String(row.casaos_hostname) : undefined,
+    casaosPortMap: row.casaos_port_map ? String(row.casaos_port_map) : undefined,
+    casaosIndex: row.casaos_index ? String(row.casaos_index) : undefined,
   };
 }
 
@@ -89,11 +148,44 @@ export function findApp(id: string) {
 export function saveApp(app: ManagedApp) {
   const database = getDatabase();
   const existing = database.prepare("SELECT id FROM apps WHERE id = ?").get(app.id);
-  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order)
-    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder)
-    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder`).run(toRow(app));
+  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
+    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)
+    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex`).run(toRow(app));
   recordActivity(existing ? "app-updated" : "app-created", app.id, app.name);
   return app;
+}
+
+export function reconcileDockerApps(containers: DockerContainer[], options: { preserveUnmatched?: boolean } = {}) {
+  const database = getDatabase();
+  const apps = listApps();
+  const claimed = new Set<string>();
+  const now = new Date().toISOString();
+  for (const app of apps) {
+    const container = findContainerForApp(app, containers, claimed);
+    if (container) {
+      claimed.add(container.id);
+      const casaos = container.casaos;
+      database.prepare(`UPDATE apps SET docker_project = ?, docker_service = ?, container_id = ?, container_name = ?, container_image = ?, container_state = ?, container_health = ?, container_started_at = ?, container_observed_at = ?, casaos_scheme = ?, casaos_hostname = ?, casaos_port_map = ?, casaos_index = ? WHERE id = ?`).run(
+        container.compose.project || app.dockerProject || null,
+        container.compose.service || app.dockerService || null,
+        container.id,
+        container.name,
+        container.image,
+        container.state,
+        container.health,
+        container.startedAt,
+        now,
+        casaos?.scheme || app.casaosScheme || null,
+        casaos?.hostname || app.casaosHostname || null,
+        casaos?.portMap || app.casaosPortMap || null,
+        casaos?.index || app.casaosIndex || null,
+        app.id,
+      );
+    } else if (!options.preserveUnmatched && (app.containerId || app.dockerProject || app.dockerService)) {
+      database.prepare(`UPDATE apps SET container_id = NULL, container_name = NULL, container_image = NULL, container_state = 'unknown', container_health = 'unknown', container_started_at = NULL, container_observed_at = ?, casaos_scheme = NULL, casaos_hostname = NULL, casaos_port_map = NULL, casaos_index = NULL WHERE id = ?`).run(now, app.id);
+    }
+  }
+  return listApps();
 }
 
 export function removeApp(id: string) {
@@ -127,4 +219,67 @@ export function listActivities(limit = 5): ActivityEvent[] {
 function recordActivity(type: ActivityType, appId: string, appName: string, status?: AppStatus) {
   getDatabase().prepare(`INSERT INTO activities (type, app_id, app_name, status, created_at)
     VALUES (?, ?, ?, ?, ?)`).run(type, appId, appName, status ?? null, new Date().toISOString());
+}
+
+function addColumnIfMissing(database: DatabaseSync, columns: { name?: unknown }[], name: string, definition: string) {
+  if (!columns.some((column) => column.name === name)) database.exec(`ALTER TABLE apps ADD COLUMN ${name} ${definition}`);
+}
+
+function findContainerForApp(app: ManagedApp, containers: DockerContainer[], claimed: Set<string>) {
+  const candidates = containers.filter((container) => !claimed.has(container.id));
+  if (app.dockerProject && app.dockerService) {
+    return candidates.find((container) => container.compose.project === app.dockerProject && container.compose.service === app.dockerService);
+  }
+  if (app.dockerService) {
+    return candidates.find((container) => container.compose.service === app.dockerService);
+  }
+  const byLabel = candidates.find((container) => container.labels["com.nimbus.app-id"] === app.id);
+  if (byLabel) return byLabel;
+  const normalizedIds = new Set([normalizeIdentifier(app.id), normalizeIdentifier(app.name)].filter(Boolean));
+  if (app.dockerProject) {
+    const projectMatches = candidates.filter((container) => container.compose.project === app.dockerProject);
+    if (projectMatches.length) return chooseProjectContainer(projectMatches, normalizedIds);
+  }
+  const exact = candidates.filter((container) => {
+    const values = [container.name, container.compose.project, container.compose.service].map((value) => normalizeIdentifier(value || ""));
+    return values.some((value) => value && normalizedIds.has(value));
+  });
+  if (exact.length === 1) return exact[0];
+  if (exact.length > 1) return chooseProjectContainer(exact, normalizedIds);
+  const loose = candidates.filter((container) => {
+    const values = [container.name, container.compose.project, container.compose.service].map((value) => normalizeIdentifier(value || ""));
+    return values.some((value) => value && [...normalizedIds].some((id) => value.startsWith(id) || id.startsWith(value)));
+  });
+  if (loose.length === 1) return loose[0];
+  return undefined;
+}
+
+function chooseProjectContainer(containers: DockerContainer[], normalizedIds: Set<string>) {
+  return [...containers].sort((left, right) => containerMatchScore(right, normalizedIds) - containerMatchScore(left, normalizedIds))[0];
+}
+
+function containerMatchScore(container: DockerContainer, normalizedIds: Set<string>) {
+  const service = normalizeIdentifier(container.compose.service || "");
+  const name = normalizeIdentifier(container.name);
+  return (container.casaos ? 100 : 0)
+    + (container.state === "running" ? 20 : 0)
+    + (normalizedIds.has(service) ? 50 : 0)
+    + (normalizedIds.has(name) ? 40 : 0)
+    + (service.includes("server") || service.includes("web") || service.includes("app") ? 10 : 0);
+}
+
+function normalizeIdentifier(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normalizeContainerState(value: unknown): DockerContainerState {
+  return ["created", "restarting", "running", "removing", "paused", "exited", "dead", "unknown"].includes(String(value))
+    ? value as DockerContainerState
+    : "unknown";
+}
+
+function normalizeContainerHealth(value: unknown): DockerHealthState {
+  return ["healthy", "unhealthy", "starting", "none", "unknown"].includes(String(value))
+    ? value as DockerHealthState
+    : "unknown";
 }

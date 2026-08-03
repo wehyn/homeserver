@@ -1,11 +1,25 @@
 import { NextResponse } from "next/server";
-import { listApps, removeApp, saveApp } from "@/lib/db";
+import { listApps, reconcileDockerApps, removeApp, saveApp } from "@/lib/db";
+import { fetchDockerDiscovery } from "@/lib/docker-discovery";
 import type { ManagedApp } from "@/lib/types";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json({ apps: listApps() });
+  const discovery = await fetchDockerDiscovery();
+  const apps = discovery.available
+    ? reconcileDockerApps(discovery.containers, { preserveUnmatched: discovery.status === "partial" })
+    : listApps();
+  return NextResponse.json({
+    apps,
+    docker: {
+      available: discovery.available,
+      status: discovery.status,
+      warnings: discovery.warnings,
+      updatedAt: discovery.updatedAt,
+    },
+  });
 }
 
 export async function POST(request: Request) {

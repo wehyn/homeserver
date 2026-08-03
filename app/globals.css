@@ -114,3 +114,28 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
   .processor-stat-card .processor-telemetry-item span { gap: 3px; font-size: 7px; letter-spacing: .1px; }
   .processor-stat-card .processor-telemetry-item strong { font-size: 11px; }
 }
+
+.container-status { display: flex; align-items: center; gap: 6px; color: var(--muted-2); font: 500 10px/1 'Manrope', sans-serif; letter-spacing: 0; white-space: nowrap; }
+.container-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-2); }
+.container-running .container-status-dot { background: var(--accent); }
+.container-restarting .container-status-dot, .container-created .container-status-dot, .container-paused .container-status-dot { background: var(--orange); }
+.container-exited .container-status-dot, .container-dead .container-status-dot { background: #f4778b; }
+.form-columns-equal { grid-template-columns: 1fr 1fr; }
+.form-help { color: var(--muted-2); font-size: 9px; line-height: 1.5; margin: -3px 0 15px; }
+
+/* Application cards: compact service identity without changing the dashboard hierarchy. */
+.app-card { border-radius: 14px; box-shadow: 0 14px 30px rgba(0,0,0,.1); }
+.app-card::before { display: none; }
+.app-card:hover { border-color: var(--line); box-shadow: 0 20px 38px rgba(0,0,0,.16); }
+.app-card-top { padding: 16px 16px 0; }
+.app-link { padding: 18px 16px 14px; }
+.app-card-bottom { left: 16px; right: 16px; bottom: 15px; }
+.app-card-bottom .launch-link { margin-left: auto; }
+
+html[data-theme="light"] .app-card { box-shadow: 0 14px 30px rgba(15,23,42,.08); }
+
+@media (max-width: 510px) {
+  .app-card-top { padding-left: 14px; padding-right: 14px; }
+  .app-link { padding-left: 14px; padding-right: 14px; }
+  .app-card-bottom { left: 14px; right: 14px; }
+}

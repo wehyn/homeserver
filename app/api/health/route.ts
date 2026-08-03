@@ -1,29 +1,32 @@
 import https from "node:https";
 import { NextResponse } from "next/server";
 import { findApp, updateAppStatus } from "@/lib/db";
+import { isCasaOSHealthSuccess, resolveHealthTarget } from "@/lib/health-target";
 import type { AppStatus } from "@/lib/types";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url).searchParams.get("url");
-  const appId = new URL(request.url).searchParams.get("id");
+  const requestUrl = new URL(request.url);
+  const requestedUrl = requestUrl.searchParams.get("url");
+  const appId = requestUrl.searchParams.get("id");
+  const app = appId ? findApp(appId) : undefined;
+  const url = app ? resolveHealthTarget(app) : requestedUrl;
   if (!url) return NextResponse.json({ status: "unknown" }, { status: 400 });
 
   try {
     const target = new URL(url);
     if (!["http:", "https:"].includes(target.protocol)) throw new Error("Unsupported protocol");
-    const app = appId ? findApp(appId) : undefined;
-    const configuredTarget = app?.healthUrl || app?.url;
-    const allowInsecureTls = app?.allowInsecureTls === true && configuredTarget ? new URL(configuredTarget).href === target.href : false;
+    const allowInsecureTls = app?.allowInsecureTls === true;
     const started = Date.now();
     const response = allowInsecureTls && target.protocol === "https:"
       ? await requestWithInsecureTls(target)
       : await fetchWithTimeout(target);
     const elapsed = Date.now() - started;
-    const status = (response.ok ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
+    const successful = isCasaOSHealthSuccess(response.statusCode);
+    const status = (successful ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
     if (appId) updateAppStatus(appId, status);
-    return NextResponse.json({ status, latency: elapsed });
+    return NextResponse.json({ status, latency: elapsed, statusCode: response.statusCode });
   } catch {
     if (appId) updateAppStatus(appId, "offline");
     return NextResponse.json({ status: "offline" });
@@ -35,14 +38,14 @@ async function fetchWithTimeout(target: URL) {
   const timeout = setTimeout(() => controller.abort(), 4500);
   try {
     const response = await fetch(target, { method: "GET", cache: "no-store", signal: controller.signal });
-    return { ok: response.ok };
+    return { statusCode: response.status };
   } finally {
     clearTimeout(timeout);
   }
 }
 
 function requestWithInsecureTls(target: URL) {
-  return new Promise<{ ok: boolean }>((resolve, reject) => {
+  return new Promise<{ statusCode: number }>((resolve, reject) => {
     let settled = false;
     const request = https.request(target, { method: "GET", rejectUnauthorized: false }, (response) => {
       const statusCode = response.statusCode ?? 0;
@@ -50,7 +53,7 @@ function requestWithInsecureTls(target: URL) {
       response.once("end", () => {
         if (settled) return;
         settled = true;
-        resolve({ ok: statusCode >= 200 && statusCode < 400 });
+        resolve({ statusCode });
       });
       response.once("error", (error) => {
         if (settled) return;

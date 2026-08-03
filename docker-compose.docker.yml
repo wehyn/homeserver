@@ -1,0 +1,9 @@
+services:
+  metrics-agent:
+    environment:
+      DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - type: bind
+        source: ${DOCKER_SOCKET:?Set DOCKER_SOCKET to the host Docker socket path}
+        target: /var/run/docker.sock
+        read_only: true
