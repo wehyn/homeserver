@@ -91,6 +91,8 @@ SQLite implementation uses the built-in `node:sqlite` API. The Docker image also
   `server-only`.
 - Match the existing concise functional-component style, double-quoted imports, semicolons, and
   two-space indentation.
+- Keep related system telemetry inside its primary resource card; for example, keep CPU
+  temperature and CPU power inside the Processor card.
 - Use `camelCase` for variables and functions, `PascalCase` for React components and types, and
   `SCREAMING_SNAKE_CASE` only for true constants.
 - Use kebab-case for route and data identifiers such as `app/api/health` and `healthUrl` for the
@@ -192,6 +194,8 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
   TypeScript or runtime-affecting changes.
 - Any change to API validation, persistence, container permissions, network access, or deployment
   configuration requires human review before merge.
+- When diagnosing sysfs sensors exposed through `/sys/class`, resolve class symlinks and check
+  read permissions before concluding that a sensor is absent.
 - No repository rate-limit policy is currently defined. `> TODO: Set request limits for health
   checks and mutation endpoints before public exposure.`
 - No files are designated as permanently immutable beyond generated/runtime artifacts above.

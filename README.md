@@ -21,11 +21,16 @@ docker compose up -d --build
 
 The SQLite database is stored in the `nimbus-data` volume. To expose Nimbus safely outside your LAN, put it behind the reverse proxy or VPN you already use for your other services.
 
-The Compose deployment also starts a read-only host metrics agent for the Memory and Processor pages. It reads
-Linux process information through `/proc` and user names through `/etc/passwd`; neither mount is
-writable, the agent publishes no host port, and it does not require the Docker socket. Set
-`MEMORY_AGENT_TOKEN` in `.env` to add a shared bearer token between Nimbus and the agent. The
-Memory and Processor pages poll the agent only while they are open.
+The Compose deployment also starts a read-only host metrics agent for the Memory and Processor pages
+and the Overview hardware cards. It reads Linux process information through `/proc`, user names
+through `/etc/passwd`, and CPU thermal/power data through read-only sysfs mounts; none of these
+mounts is writable, the agent publishes no host port, and it does not require the Docker socket.
+The agent runs as container UID 0 only because Intel RAPL's `energy_uj` counter is root-readable
+on some hosts; it is not a privileged container, and all hardware mounts remain read-only.
+Set `MEMORY_AGENT_TOKEN` in `.env` to add a shared bearer token between Nimbus and the agent. The
+Overview refreshes aggregate CPU, RAM, storage, temperature, and CPU-package power every 5 seconds;
+the Memory and Processor pages poll the agent only while they are open. CPU power is an Intel RAPL
+package estimate when supported, not a whole-device wall-power measurement.
 
 ## Connecting an app
 
