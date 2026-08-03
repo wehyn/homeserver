@@ -10,7 +10,7 @@ import {
   Thermometer, Trash2, TriangleAlert, X, Zap,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
-import type { ActivityEvent, AppStatus, DockerContainerState, ManagedApp, ServerOverview } from "@/lib/types";
+import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 import { ThemeToggle } from "@/app/theme-toggle";
 
 const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
@@ -33,7 +33,6 @@ function Gamepad2(props: React.ComponentProps<typeof Cloud>) { return <svg {...p
 function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="m10 8 5 4-5 4V8Z"/></svg>; }
 
 const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
-const containerStateCopy: Record<DockerContainerState, string> = { created: "Created", restarting: "Restarting", running: "Running", removing: "Removing", paused: "Paused", exited: "Stopped", dead: "Dead", unknown: "Unknown" };
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
 function getFaviconUrls(url: string, appId?: string) {
@@ -88,8 +87,6 @@ export default function Home() {
   const [appsLoading, setAppsLoading] = useState(true);
   const [appsError, setAppsError] = useState("");
   const [overview, setOverview] = useState<ServerOverview | null>(null);
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("All apps");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editing, setEditing] = useState<ManagedApp | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -101,8 +98,6 @@ export default function Home() {
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
   const activeHealthRefreshesRef = useRef(0);
-  const [searchShortcut, setSearchShortcut] = useState("⌘ K");
-  const searchInputRef = useRef<HTMLInputElement>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarCloseRef = useRef<HTMLButtonElement>(null);
@@ -125,18 +120,6 @@ export default function Home() {
     setSidebarOpen(false);
     mobileMenuRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    const isApplePlatform = /Mac|iPhone|iPad|iPod/.test(window.navigator.platform);
-    setSearchShortcut(isApplePlatform ? "⌘ K" : "Ctrl K");
-    const handleSearchShortcut = (event: KeyboardEvent) => {
-      if (settingsOpen || event.isComposing || event.altKey || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
-      event.preventDefault();
-      searchInputRef.current?.focus();
-    };
-    window.addEventListener("keydown", handleSearchShortcut);
-    return () => window.removeEventListener("keydown", handleSearchShortcut);
-  }, [settingsOpen]);
 
   useEffect(() => {
     if (settingsOpen) return;
@@ -241,11 +224,7 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [refreshHealth, appsLoading, apps.map((app) => `${app.id}:${app.healthUrl || app.url}:${app.casaosScheme || ""}:${app.casaosHostname || ""}:${app.casaosPortMap || ""}:${app.casaosIndex || ""}:${app.allowInsecureTls ? "insecure" : "strict"}`).join("|")]);
 
-  const visibleApps = useMemo(() => apps.filter((app) => {
-    const matchQuery = `${app.name} ${app.description} ${app.category}`.toLowerCase().includes(query.toLowerCase());
-    const matchCategory = category === "All apps" || (category === "Favorites" ? app.isFavorite : app.category === category);
-    return app.isVisible && matchQuery && matchCategory;
-  }), [apps, category, query]);
+  const visibleApps = useMemo(() => apps.filter((app) => app.isVisible), [apps]);
 
   const processorDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.cpuCores} logical cores · live` : "Loading system metrics…";
   const storageDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading system metrics…";
@@ -285,16 +264,15 @@ export default function Home() {
       <header className="topbar"><button type="button" ref={mobileMenuRef} className="mobile-menu" onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><ThemeToggle /><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div></section>
-        <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Cpu} label="Processor" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" className="processor-stat-card" loading={overviewRefreshing}><div className="processor-telemetry" role="group" aria-label="Processor hardware telemetry"><div className="processor-telemetry-item" title={temperatureDetail} aria-label={`CPU temperature: ${temperatureValue}. ${temperatureDetail}`}><span><Thermometer size={12} aria-hidden="true" />Temperature</span><strong>{temperatureValue}</strong></div><div className="processor-telemetry-item" title={powerDetail} aria-label={`CPU power: ${powerValue}. ${powerDetail}`}><span><Zap size={12} aria-hidden="true" />Power</span><strong>{powerValue}</strong></div></div></StatCard><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
-        <section className="apps-section" aria-busy={appsLoading}><div className="section-heading"><div><div className="section-title-row"><h2>Applications</h2><span className="count-pill">{appsLoading ? "—" : apps.length}</span></div></div><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div>
-          <div className="toolbar"><div className="search-box"><Search size={18} aria-hidden="true" /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." aria-label="Search applications" /><kbd>{searchShortcut}</kbd></div><div className="filters-viewport" role="group" aria-label="Application category filters"><div className="filters">{categories.map((item) => <button type="button" key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)} aria-pressed={category === item}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" aria-hidden="true" />}</button>)}</div></div></div>
+        <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Cpu} label="CPU" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" className="processor-stat-card" loading={overviewRefreshing}><div className="processor-telemetry" role="group" aria-label="Processor hardware telemetry"><div className="processor-telemetry-item" title={temperatureDetail} aria-label={`CPU temperature: ${temperatureValue}. ${temperatureDetail}`}><span><Thermometer size={12} aria-hidden="true" /></span><strong>{temperatureValue}</strong></div><div className="processor-telemetry-item" title={powerDetail} aria-label={`CPU power: ${powerValue}. ${powerDetail}`}><span><Zap size={12} aria-hidden="true" /></span><strong>{powerValue}</strong></div></div></StatCard><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
+        <section className="apps-section" aria-busy={appsLoading}><div className="section-heading"><div><div className="section-title-row"><h2>Applications</h2></div></div><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div>
           <AnimatePresence mode="wait" initial={false}>
             {appsLoading ? <motion.div key="apps-loading" className="empty-state" role="status" aria-live="polite" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><RefreshCw size={24} className="spin" aria-hidden="true" /><strong>Loading applications…</strong><span>Checking the application registry.</span></motion.div> : appsError ? <motion.div key="apps-error" className="empty-state" role="alert" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><TriangleAlert size={24} aria-hidden="true" /><strong>Applications unavailable</strong><span>{appsError}</span><button className="small-primary" onClick={() => void loadApps()}>Try again</button></motion.div> : visibleApps.length ? <motion.div key="app-grid" className="app-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition}>
               <AnimatePresence initial={false} mode="popLayout">
                 {visibleApps.map((app) => <motion.div key={app.id} className="app-card-motion" layout initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={motionTransition}><AppCard app={app} onEdit={() => openSettings(app)} /></motion.div>)}
               </AnimatePresence>
-              <button type="button" className="add-card" onClick={() => openSettings(blankApp(apps.length))}><span><Plus size={21} /></span><strong>Add application</strong><small>Connect a new service</small></button>
-            </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No applications found</strong><span>Try another search or category.</span></motion.div>}
+              <button type="button" className="add-card" onClick={() => openSettings(blankApp(apps.length))}><span><Plus size={21} /></span><strong>Add application</strong></button>
+            </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No visible applications</strong><span>Add an application or make one visible in management.</span></motion.div>}
           </AnimatePresence>
         </section>
         <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button type="button" className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} aria-hidden="true" /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, var(--donut-rest) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>{storageStatus}</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{storageLegendValue(overview?.storageUsed)}</b></div><div><span className="legend-dot gray-dot" />Available <b>{storageLegendValue(overview?.storageAvailable)}</b></div><div><span className="legend-dot blue-dot" />Total <b>{storageLegendValue(overview?.storageTotal)}</b></div></div></div></div></section>
@@ -310,9 +288,9 @@ export default function Home() {
 
 function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
   return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}>
-    <div className="app-card-top"><span className="category-label">{app.category}</span><button type="button" className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button></div>
-    <a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div><p>{app.description}</p></div></a>
-    <div className="app-card-bottom">{app.containerState && <span className={`container-status container-${app.containerState}`}><span className="container-status-dot" />Container: {containerStateCopy[app.containerState]}</span>}<span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div>
+    <button type="button" className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button>
+    <a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div></div></a>
+    <div className="app-card-bottom"><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div>
   </article>;
 }
 
