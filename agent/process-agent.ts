@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, readdir } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { collectDockerSnapshot } from "./docker-discovery.ts";
 import { HardwareSampler } from "./hardware.js";
 
 type ProcessRecord = {
@@ -67,6 +68,7 @@ const procRoot = process.env.PROC_ROOT || "/host/proc";
 const passwdPath = process.env.PASSWD_PATH || "/host/etc/passwd";
 const port = Number(process.env.AGENT_PORT || 8787);
 const sharedToken = process.env.MEMORY_AGENT_TOKEN || "";
+const dockerToken = process.env.DOCKER_AGENT_TOKEN || sharedToken;
 let previousCpuSample: CpuSample | undefined;
 const hardwareSampler = new HardwareSampler();
 
@@ -327,9 +329,10 @@ function toPercent(value: number) {
   return Number(Math.max(0, value).toFixed(2));
 }
 
-function isAuthorized(request: IncomingMessage) {
-  if (!sharedToken) return true;
-  return request.headers.authorization === `Bearer ${sharedToken}`;
+function isAuthorized(request: IncomingMessage, pathname: string) {
+  const token = pathname === "/v1/docker/containers" ? dockerToken : sharedToken;
+  if (!token) return true;
+  return request.headers.authorization === `Bearer ${token}`;
 }
 
 function sendJson(response: ServerResponse, status: number, body: unknown) {
@@ -345,12 +348,12 @@ export function startServer() {
       return;
     }
 
-    if (request.method !== "GET" || !["/v1/hardware", "/v1/memory/processes", "/v1/processor/processes"].includes(requestPath)) {
+    if (request.method !== "GET" || !["/v1/hardware", "/v1/memory/processes", "/v1/processor/processes", "/v1/docker/containers"].includes(requestPath)) {
       sendJson(response, 404, { error: "Not found" });
       return;
     }
 
-    if (!isAuthorized(request)) {
+    if (!isAuthorized(request, requestPath)) {
       sendJson(response, 401, { error: "Unauthorized" });
       return;
     }
@@ -358,7 +361,11 @@ export function startServer() {
     try {
       const data = requestPath === "/v1/hardware"
         ? await hardwareSampler.getSnapshot()
-        : requestPath === "/v1/processor/processes" ? await collectProcessorSnapshot() : await collectSnapshot();
+        : requestPath === "/v1/processor/processes"
+          ? await collectProcessorSnapshot()
+          : requestPath === "/v1/docker/containers"
+          ? await collectDockerSnapshot()
+          : await collectSnapshot();
       sendJson(response, 200, data);
     } catch (error) {
       sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to collect system metrics" });

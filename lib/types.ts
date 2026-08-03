@@ -1,6 +1,9 @@
 export type AppStatus = "online" | "degraded" | "offline" | "unknown";
 export type AppSource = "manual" | "docker";
 export type ActivityType = "app-created" | "app-updated" | "app-deleted" | "status-changed";
+export type DockerContainerState = "created" | "restarting" | "running" | "removing" | "paused" | "exited" | "dead" | "unknown";
+export type DockerHealthState = "healthy" | "unhealthy" | "starting" | "none" | "unknown";
+export type CasaOSScheme = "http" | "https";
 
 export type ManagedApp = {
   id: string;
@@ -17,6 +20,19 @@ export type ManagedApp = {
   isFavorite: boolean;
   isVisible: boolean;
   sortOrder: number;
+  dockerProject?: string;
+  dockerService?: string;
+  containerId?: string;
+  containerName?: string;
+  containerImage?: string;
+  containerState?: DockerContainerState;
+  containerHealth?: DockerHealthState;
+  containerStartedAt?: string;
+  containerObservedAt?: string;
+  casaosScheme?: CasaOSScheme;
+  casaosHostname?: string;
+  casaosPortMap?: string;
+  casaosIndex?: string;
 };
 
 export type ActivityEvent = {
