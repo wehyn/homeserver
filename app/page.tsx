@@ -7,7 +7,7 @@ import {
   Activity, Check, ChevronDown, Cloud, Cpu, Database,
   ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
   Network, Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star,
-  Trash2, TriangleAlert, X,
+  Thermometer, Trash2, TriangleAlert, X, Zap,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
@@ -34,26 +34,6 @@ function Play(props: React.ComponentProps<typeof Cloud>) { return <svg {...props
 
 const statusCopy: Record<AppStatus, string> = { online: "Online", degraded: "Slow response", offline: "Offline", unknown: "Not checked" };
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
-
-type StatusSummary = {
-  status: AppStatus;
-  title: string;
-  detail: string;
-  loading: boolean;
-};
-
-function getStatusSummary(apps: ManagedApp[], appsLoading: boolean, appsError: string, refreshing: boolean): StatusSummary {
-  const onlineCount = apps.filter((app) => app.status === "online").length;
-  if (appsLoading) return { status: "unknown", title: "Loading services", detail: "Loading application registry", loading: true };
-  if (appsError) return { status: "unknown", title: "Services unavailable", detail: "Application registry unavailable", loading: false };
-  const detail = `${onlineCount} of ${apps.length} services online`;
-  if (!apps.length) return { status: "unknown", title: "No services configured", detail, loading: false };
-  if (refreshing) return { status: "unknown", title: "Checking service status", detail, loading: true };
-  if (apps.some((app) => app.status === "unknown")) return { status: "unknown", title: "Service status unavailable", detail, loading: false };
-  if (apps.some((app) => app.status === "offline")) return { status: "offline", title: "Some services offline", detail, loading: false };
-  if (apps.some((app) => app.status === "degraded")) return { status: "degraded", title: "Some services degraded", detail, loading: false };
-  return { status: "online", title: "All systems nominal", detail, loading: false };
-}
 
 function getFaviconUrls(url: string, appId?: string) {
   try {
@@ -93,13 +73,15 @@ function AppIcon({ app, large = false, proxy = true }: { app: ManagedApp; large?
 
 function StatusDot({ status }: { status: AppStatus }) { return <span className={`status-dot status-${status}`} aria-label={statusCopy[status]} />; }
 
-function StatCard({ icon: Icon, label, value, detail, progress, tone, href, loading = false }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string; href?: string; loading?: boolean }) {
+function StatCard({ icon: Icon, label, value, detail, progress, tone, href, loading = false, className = "", children }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string; href?: string; loading?: boolean; className?: string; children?: React.ReactNode }) {
   const content = <>
     <div className="stat-card-top"><span className={`stat-icon ${tone}`}><Icon size={16} /></span><span>{label}</span></div>
     <div className="stat-value">{value}</div><div className="stat-detail">{detail}</div>
     {progress !== undefined && <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>}
+    {children}
   </>;
-  return href ? <Link className="stat-card stat-card-link" href={href} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</Link> : <div className="stat-card" aria-busy={loading}>{content}</div>;
+  const cardClassName = `stat-card${className ? ` ${className}` : ""}`;
+  return href ? <Link className={`${cardClassName} stat-card-link`} href={href} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</Link> : <div className={cardClassName} aria-busy={loading}>{content}</div>;
 }
 
 export default function Home() {
@@ -226,7 +208,7 @@ export default function Home() {
 
   useEffect(() => {
     void refreshOverview();
-    const interval = window.setInterval(() => void refreshOverview(), 30_000);
+    const interval = window.setInterval(() => void refreshOverview(), 5_000);
     return () => window.clearInterval(interval);
   }, [refreshOverview]);
 
@@ -266,11 +248,13 @@ export default function Home() {
     return app.isVisible && matchQuery && matchCategory;
   }), [apps, category, query]);
 
-  const statusSummary = getStatusSummary(apps, appsLoading, appsError, refreshing);
-  const overviewDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? "Since last restart" : "Loading system metrics…";
   const processorDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.cpuCores} logical cores · live` : "Loading system metrics…";
   const storageDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading system metrics…";
   const memoryDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.memoryUsed} of ${overview.memoryTotal}` : "Loading system metrics…";
+  const temperatureValue = overview ? formatTemperature(overview.temperatureC) : "—";
+  const powerValue = overview ? formatPower(overview.powerWatts) : "—";
+  const temperatureDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : !overview ? "Loading system metrics…" : overview.temperatureC === null ? "Sensor unavailable" : "CPU package sensor · live";
+  const powerDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : !overview ? "Loading system metrics…" : overview.powerWatts === null ? (overview.powerSource ? "Sampling power sensor…" : "Power sensor unavailable") : "CPU package estimate · live";
   const storageStatus = overviewError ? (overview ? "stale" : "unavailable") : overview ? "used" : "loading";
   const storageLegendValue = (value?: string) => !overview || !value ? "—" : overviewError ? `${value} · stale` : value;
 
@@ -295,14 +279,14 @@ export default function Home() {
     <aside id="primary-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
       <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span><button type="button" ref={mobileSidebarCloseRef} className="mobile-sidebar-close" onClick={closeSidebar} aria-label="Close navigation menu"><X size={19} aria-hidden="true" /></button></div>
       <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active" onClick={closeSidebar}><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => { setSidebarOpen(false); openSettings(null); }}><Settings2 size={17} />Application management</button></nav>
-      <div className="sidebar-bottom"><div className={`status-summary status-summary-${statusSummary.status}`} role="status" aria-live="polite" aria-atomic="true" aria-busy={statusSummary.loading} aria-label={`${statusSummary.title}. ${statusSummary.detail}`}><span className={`live-pulse status-${statusSummary.status}`} aria-hidden="true" /><div><strong>{statusSummary.title}</strong><small>{statusSummary.detail}</small></div></div></div>
+      <div className="sidebar-bottom"><div className="sidebar-uptime" role="status" aria-live="polite" aria-atomic="true" aria-busy={overviewRefreshing} aria-label={`System uptime: ${overview?.uptime || "Loading"}`}><span className="sidebar-uptime-icon"><Gauge size={15} aria-hidden="true" /></span><div><span>System uptime</span><strong>{overview?.uptime || "—"}</strong></div></div></div>
     </aside>
     {sidebarOpen && <button type="button" className="sidebar-backdrop" onClick={closeSidebar} aria-label="Close navigation menu" />}
     <section className="content">
       <header className="topbar"><button type="button" ref={mobileMenuRef} className="mobile-menu" onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><ThemeToggle /><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
       <div className="main-inner">
         <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div></section>
-        <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Gauge} label="System uptime" value={overview?.uptime || "—"} detail={overviewDetail} tone="purple" loading={overviewRefreshing} /><StatCard icon={Cpu} label="Processor" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" loading={overviewRefreshing} /><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
+        <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Cpu} label="Processor" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" className="processor-stat-card" loading={overviewRefreshing}><div className="processor-telemetry" role="group" aria-label="Processor hardware telemetry"><div className="processor-telemetry-item" title={temperatureDetail} aria-label={`CPU temperature: ${temperatureValue}. ${temperatureDetail}`}><span><Thermometer size={12} aria-hidden="true" />Temperature</span><strong>{temperatureValue}</strong></div><div className="processor-telemetry-item" title={powerDetail} aria-label={`CPU power: ${powerValue}. ${powerDetail}`}><span><Zap size={12} aria-hidden="true" />Power</span><strong>{powerValue}</strong></div></div></StatCard><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
         <section className="apps-section" aria-busy={appsLoading}><div className="section-heading"><div><div className="section-title-row"><h2>Applications</h2><span className="count-pill">{appsLoading ? "—" : apps.length}</span></div></div><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div>
           <div className="toolbar"><div className="search-box"><Search size={18} aria-hidden="true" /><input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search applications..." aria-label="Search applications" /><kbd>{searchShortcut}</kbd></div><div className="filters-viewport" role="group" aria-label="Application category filters"><div className="filters">{categories.map((item) => <button type="button" key={item} className={category === item ? "filter active-filter" : "filter"} onClick={() => setCategory(item)} aria-pressed={category === item}>{item}{item === "Favorites" && <Star size={12} fill="currentColor" aria-hidden="true" />}</button>)}</div></div></div>
           <AnimatePresence mode="wait" initial={false}>
@@ -418,3 +402,5 @@ function AppForm({ app, isNew, onCancel, onSave, onDelete }: { app: ManagedApp; 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", allowInsecureTls: false, status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
 function BellIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>; }
 function formatPercent(value: number) { return `${value.toFixed(2)}%`; }
+function formatTemperature(value: number | null) { return value === null ? "Unavailable" : `${value}°C`; }
+function formatPower(value: number | null) { return value === null ? "Unavailable" : `${value.toFixed(2)} W`; }
