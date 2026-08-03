@@ -2,12 +2,14 @@ import os from "node:os";
 import path from "node:path";
 import { statfsSync } from "node:fs";
 import { NextResponse } from "next/server";
+import { HardwareSampler, type HardwareSnapshot } from "@/agent/hardware";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CpuTimes = { idle: number; total: number };
 let previousCpuTimes: CpuTimes | undefined;
+const localHardwareSampler = new HardwareSampler("/sys");
 
 export async function GET() {
   const totalMemory = os.totalmem();
@@ -15,11 +17,15 @@ export async function GET() {
   const memoryUsed = totalMemory - freeMemory;
   const cpu = await getCpuUsage();
   const storage = getStorageUsage();
+  const hardware = await getHardwareSnapshot();
 
   return NextResponse.json({
     uptime: formatUptime(os.uptime()),
     cpu,
     cpuCores: os.cpus().length,
+    temperatureC: hardware.temperatureC,
+    powerWatts: hardware.powerWatts,
+    powerSource: hardware.powerSource,
     memory: roundPercent((memoryUsed / totalMemory) * 100),
     memoryUsed: formatBytes(memoryUsed),
     memoryTotal: formatBytes(totalMemory),
@@ -30,6 +36,34 @@ export async function GET() {
     network: "Local network",
     updatedAt: new Date().toISOString(),
   });
+}
+
+async function getHardwareSnapshot(): Promise<HardwareSnapshot> {
+  const agentUrl = process.env.HARDWARE_AGENT_URL;
+  if (agentUrl) {
+    try {
+      const response = await fetch(`${agentUrl.replace(/\/$/, "")}/v1/hardware`, {
+        cache: "no-store",
+        headers: process.env.MEMORY_AGENT_TOKEN ? { Authorization: `Bearer ${process.env.MEMORY_AGENT_TOKEN}` } : undefined,
+        signal: AbortSignal.timeout(1_000),
+      });
+      const data: unknown = await response.json().catch(() => null);
+      if (response.ok && isHardwareSnapshot(data)) return data;
+    } catch {
+      // Fall back to local sysfs when the optional agent is unavailable.
+    }
+  }
+
+  return localHardwareSampler.getSnapshot();
+}
+
+function isHardwareSnapshot(value: unknown): value is HardwareSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<HardwareSnapshot>;
+  return (snapshot.temperatureC === null || typeof snapshot.temperatureC === "number")
+    && (snapshot.powerWatts === null || typeof snapshot.powerWatts === "number")
+    && (snapshot.powerSource === null || snapshot.powerSource === "intel-rapl")
+    && typeof snapshot.updatedAt === "string";
 }
 
 async function getCpuUsage() {

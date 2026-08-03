@@ -32,6 +32,9 @@ export type ServerOverview = {
   uptime: string;
   cpu: number;
   cpuCores: number;
+  temperatureC: number | null;
+  powerWatts: number | null;
+  powerSource: "intel-rapl" | null;
   memory: number;
   memoryUsed: string;
   memoryTotal: string;

@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile, readdir } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { HardwareSampler } from "./hardware.js";
 
 type ProcessRecord = {
   pid: number;
@@ -67,6 +68,7 @@ const passwdPath = process.env.PASSWD_PATH || "/host/etc/passwd";
 const port = Number(process.env.AGENT_PORT || 8787);
 const sharedToken = process.env.MEMORY_AGENT_TOKEN || "";
 let previousCpuSample: CpuSample | undefined;
+const hardwareSampler = new HardwareSampler();
 
 export async function collectSnapshot(
   roots: { procRoot?: string; passwdPath?: string } = {},
@@ -337,12 +339,13 @@ function sendJson(response: ServerResponse, status: number, body: unknown) {
 
 export function startServer() {
   const server = createServer(async (request, response) => {
-    if (request.url === "/healthz") {
+    const requestPath = new URL(request.url || "/", "http://localhost").pathname;
+    if (requestPath === "/healthz") {
       sendJson(response, 200, { status: "ok" });
       return;
     }
 
-    if (request.method !== "GET" || !["/v1/memory/processes", "/v1/processor/processes"].includes(request.url || "")) {
+    if (request.method !== "GET" || !["/v1/hardware", "/v1/memory/processes", "/v1/processor/processes"].includes(requestPath)) {
       sendJson(response, 404, { error: "Not found" });
       return;
     }
@@ -353,12 +356,21 @@ export function startServer() {
     }
 
     try {
-      const data = request.url === "/v1/processor/processes" ? await collectProcessorSnapshot() : await collectSnapshot();
+      const data = requestPath === "/v1/hardware"
+        ? await hardwareSampler.getSnapshot()
+        : requestPath === "/v1/processor/processes" ? await collectProcessorSnapshot() : await collectSnapshot();
       sendJson(response, 200, data);
     } catch (error) {
       sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to collect system metrics" });
     }
   });
+
+  const hardwareTimer = setInterval(() => {
+    void hardwareSampler.refresh();
+  }, 5_000);
+  hardwareTimer.unref();
+  void hardwareSampler.refresh();
+  server.on("close", () => clearInterval(hardwareTimer));
 
   server.listen(port, "0.0.0.0", () => {
     console.log(`Nimbus metrics agent listening on port ${port}`);
