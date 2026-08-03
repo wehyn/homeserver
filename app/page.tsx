@@ -13,6 +13,7 @@ import { seedApps } from "@/lib/seed";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 
 const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
+const craftyIconUrl = "https://gitlab.com/uploads/-/system/project/avatar/20430749/Crafty_4-0_Logo_square.ico?width=128";
 
 const iconPalette: Record<string, React.ComponentType<React.ComponentProps<typeof Cloud>>> = {
   "crafty-controller": GamepadIcon,
@@ -53,11 +54,38 @@ function getStatusSummary(apps: ManagedApp[], appsLoading: boolean, appsError: s
   return { status: "online", title: "All systems nominal", detail, loading: false };
 }
 
+function getFaviconUrl(url: string) {
+  try {
+    const target = new URL(url);
+    if (!["http:", "https:"].includes(target.protocol)) return "";
+    return new URL("/favicon.ico", target).href;
+  } catch {
+    return "";
+  }
+}
+
+function getKnownIconUrl(app: ManagedApp) {
+  const normalizedId = app.id.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizedName = app.name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const isCrafty = normalizedId === "craftycontroller"
+    || ["crafty", "craftycontroller", "crafty4"].includes(normalizedName);
+  return isCrafty ? craftyIconUrl : "";
+}
+
 function AppIcon({ app, large = false }: { app: ManagedApp; large?: boolean }) {
   const Icon = iconPalette[app.id] || LayoutGrid;
+  const customIcon = app.icon?.trim() || "";
+  const iconSources = customIcon
+    ? [customIcon]
+    : [getFaviconUrl(app.url), getKnownIconUrl(app)].filter(Boolean);
+  const sourceKey = iconSources.join("\u0000");
+  const [sourceIndex, setSourceIndex] = useState(0);
+  useEffect(() => setSourceIndex(0), [sourceKey]);
+  const iconSource = iconSources[sourceIndex] || "";
+
   return <div className={`app-icon ${large ? "app-icon-large" : ""}`} style={{ "--app-color": app.color } as React.CSSProperties}>
-    {app.icon ? <img src={app.icon} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} />}
-    {app.icon && <Icon className="icon-fallback" size={large ? 27 : 22} strokeWidth={1.8} />}
+    {iconSource && <img key={iconSource} src={iconSource} alt="" referrerPolicy="no-referrer" onError={() => setSourceIndex((current) => current + 1)} />}
+    <Icon className={iconSource ? "icon-fallback" : undefined} size={large ? 27 : 22} strokeWidth={1.8} />
   </div>;
 }
 
@@ -383,7 +411,7 @@ function AppForm({ app, isNew, onCancel, onSave, onDelete }: { app: ManagedApp; 
     onDelete(form.id);
     onCancel();
   };
-  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}><button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button><div className="form-title"><AppIcon app={form} large /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div><label>Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label><label>Launch URL<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label><div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div><label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label><label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="https://..." /></label><label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label><label className="toggle-row"><span><strong>Allow self-signed TLS</strong><small>Health checks only; use for trusted private services.</small></span><button type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-pressed={form.allowInsecureTls}><span /></button></label><label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label><div className="form-actions"><button type="button" className="button subtle" onClick={onCancel}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary"><Check size={16} aria-hidden="true" />Save changes</button></div></form>;
+  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}><button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button><div className="form-title"><AppIcon app={form} large /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div><label>Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label><label>Launch URL<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label><div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div><label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label><label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label><label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label><label className="toggle-row"><span><strong>Allow self-signed TLS</strong><small>Health checks only; use for trusted private services.</small></span><button type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-pressed={form.allowInsecureTls}><span /></button></label><label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label><div className="form-actions"><button type="button" className="button subtle" onClick={onCancel}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary"><Check size={16} aria-hidden="true" />Save changes</button></div></form>;
 }
 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", allowInsecureTls: false, status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
