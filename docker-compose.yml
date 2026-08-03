@@ -11,10 +11,10 @@ services:
       MEMORY_AGENT_URL: http://metrics-agent:8787
       HARDWARE_AGENT_URL: http://metrics-agent:8787
       MEMORY_AGENT_TOKEN: ${MEMORY_AGENT_TOKEN:-}
+      DOCKER_AGENT_URL: http://metrics-agent:8787
+      DOCKER_AGENT_TOKEN: ${DOCKER_AGENT_TOKEN:-}
     volumes:
       - nimbus-data:/app/data
-      # Uncomment to enable future Docker Compose discovery.
-      # - /var/run/docker.sock:/var/run/docker.sock:ro
 
   metrics-agent:
     build:
@@ -28,6 +28,8 @@ services:
       AGENT_PORT: 8787
       SYS_ROOT: /host/sys
       MEMORY_AGENT_TOKEN: ${MEMORY_AGENT_TOKEN:-}
+      DOCKER_AGENT_TOKEN: ${DOCKER_AGENT_TOKEN:-}
+      DOCKER_SERVICES_ROOT: /host/services
     volumes:
       - type: bind
         source: /proc
@@ -52,6 +54,10 @@ services:
       - type: bind
         source: /sys/class/powercap
         target: /host/sys/class/powercap
+        read_only: true
+      - type: bind
+        source: ${HOME}/services
+        target: /host/services
         read_only: true
 
 volumes:

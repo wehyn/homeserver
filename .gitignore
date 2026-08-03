@@ -13,6 +13,7 @@ data/*.db-journal
 .eslintcache
 coverage/
 .nyc_output/
+agent/dist/
 .vercel/
 .agent-worktrees/
 .review-fixes/
