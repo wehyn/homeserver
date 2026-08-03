@@ -156,6 +156,8 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
   report the shell-environment mismatch.
 - Stop any running `next dev` server before `npm run build`, then restart it afterward; concurrent
   access to the shared `.next/` output can corrupt the development server state.
+- Before building, confirm the dev server is stopped from the user shell as well; processes outside
+  the agent sandbox may not appear in the agent's process list.
 
 ## Security & Compliance
 
