@@ -70,7 +70,7 @@ export default function MemoryPage() {
       <header className="topbar"><div className="breadcrumb"><Link href="/">Workspace</Link><span>/</span><strong>Memory</strong></div><div className="top-actions"><span className="last-sync" role="status" aria-live="polite">{error ? <TriangleAlert size={12} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={12} className="spin" aria-hidden="true" />}{error ? "Memory unavailable" : snapshot ? `Updated ${formatTime(snapshot.updatedAt)}` : "Loading memory"}</span><button className="icon-button" onClick={() => void refresh()} title={error ? "Retry memory details" : "Refresh memory details"} aria-label={error ? "Retry memory details" : "Refresh memory details"}><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><button className="avatar-button">D</button></div></header>
       <div className="main-inner memory-inner">
         <div className="memory-page-heading"><div><Link className="back-link" href="/"><ArrowLeft size={14} />Overview</Link><p className="eyebrow">System detail</p><h1>Memory</h1><p className="subheading">Host processes using RAM on this device.</p></div><div className="memory-refresh-note" role="status" aria-live="polite" aria-busy={!snapshot && !error}>{error ? <TriangleAlert size={14} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={14} className="spin" aria-hidden="true" />}{error ? "Unavailable" : snapshot ? "Live · 5 sec" : "Loading…"}</div></div>
-        {snapshot && <section className="memory-summary"><MemorySummary label="Used" value={formatBytes(snapshot.usedBytes)} detail={`${snapshot.usedPercent}% of total`} tone="blue" /><MemorySummary label="Available" value={formatBytes(snapshot.availableBytes)} detail="Ready for workloads" tone="green" /><MemorySummary label="Total" value={formatBytes(snapshot.totalBytes)} detail={`${snapshot.processes.length} readable processes`} tone="purple" /></section>}
+        {snapshot && <section className="memory-summary"><MemorySummary label="Used" value={formatBytes(snapshot.usedBytes)} detail={`${snapshot.usedPercent}% of total`} tone="blue" /><MemorySummary label="Available" value={formatBytes(snapshot.availableBytes, 2)} detail="Ready for workloads" tone="green" /><MemorySummary label="Total" value={formatBytes(snapshot.totalBytes, 2)} detail={`${snapshot.processes.length} readable processes`} tone="purple" /></section>}
         {snapshot?.partial && <div className="memory-warning"><TriangleAlert size={17} /><div><strong>Some process details are incomplete</strong><p>{snapshot.warnings.join(" ")}</p></div></div>}
         {error && <div className="memory-error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><div><strong>Memory details unavailable</strong><p>{error}</p><button className="small-primary" onClick={() => void refresh()}>Try again</button></div></div>}
         <section className="process-card"><div className="card-heading"><div><div className="section-title-row"><h2>Processes</h2>{snapshot && <span className="count-pill">{snapshot.processes.length}</span>}</div><p>Resident set size is the physical RAM currently held by each process.</p></div><Database size={18} className="process-heading-icon" /></div>{!snapshot && !error ? <div className="process-state" role="status" aria-live="polite"><RefreshCw size={20} className="spin" aria-hidden="true" /><span>Reading host processes…</span></div> : error && !snapshot ? <div className="process-state"><TriangleAlert size={20} aria-hidden="true" /><span>Metrics agent unavailable. Use Try again to retry.</span></div> : processes.length ? <div className="process-table-wrap"><table className="process-table"><thead><tr>{(Object.keys(sortLabels) as SortKey[]).map((key) => <th key={key} aria-sort={sortKey === key ? (descending ? "descending" : "ascending") : "none"}><button onClick={() => changeSort(key)}>{sortLabels[key]}<ArrowUpDown size={13} /></button></th>)}</tr></thead><tbody>{processes.map((process) => <tr key={process.pid}><td><strong>{process.name}</strong></td><td className="process-command" title={process.command}>{process.command}</td><td className="mono-cell">{process.pid}</td><td>{process.user}</td><td className="value-cell">{formatBytes(process.rssBytes)}</td><td className="value-cell">{formatPercent(process.memoryPercent)}</td></tr>)}</tbody></table></div> : <div className="process-state"><Database size={20} aria-hidden="true" /><span>No readable processes were returned.</span></div>}</section>
@@ -91,7 +91,7 @@ function compareProcesses(left: MemoryProcess, right: MemoryProcess, key: SortKe
   return descending ? -comparison : comparison;
 }
 
-function formatBytes(bytes: number) {
+function formatBytes(bytes: number, decimals?: number) {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let value = bytes;
   let unitIndex = 0;
@@ -99,7 +99,10 @@ function formatBytes(bytes: number) {
     value /= 1024;
     unitIndex += 1;
   }
-  return `${value >= 10 || unitIndex === 0 ? Math.round(value) : value.toFixed(1)} ${units[unitIndex]}`;
+  const formattedValue = decimals === undefined
+    ? value >= 10 || unitIndex === 0 ? Math.round(value) : value.toFixed(1)
+    : value.toFixed(decimals);
+  return `${formattedValue} ${units[unitIndex]}`;
 }
 
 function formatPercent(value: number) {
