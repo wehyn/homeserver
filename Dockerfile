@@ -12,12 +12,12 @@ RUN npm run build
 FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=10000
 RUN addgroup -S nimbus && adduser -S nimbus -G nimbus
 COPY --from=builder --chown=nimbus:nimbus /app/.next/standalone ./
 COPY --from=builder --chown=nimbus:nimbus /app/.next/static ./.next/static
 COPY --from=builder --chown=nimbus:nimbus /app/public ./public
 RUN mkdir -p /app/data && chown -R nimbus:nimbus /app/data
 USER nimbus
-EXPOSE 3000
+EXPOSE 10000
 CMD ["node", "server.js"]
