@@ -194,6 +194,8 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
   checks and mutation endpoints before public exposure.`
 - No files are designated as permanently immutable beyond generated/runtime artifacts above.
   `> TODO: Record any product-owned or deployment-owned files that agents must never change.`
+- When changing a visual background effect, inspect both CSS declarations and JSX elements that
+  render the effect before considering the change complete.
 
 ## Extensibility Hooks
 

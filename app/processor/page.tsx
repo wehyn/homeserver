@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpDown, Cpu, RefreshCw, TriangleAlert } from "lucide-react";
+import { ThemeToggle } from "@/app/theme-toggle";
 import type { CpuProcess, ProcessorSnapshot } from "@/lib/types";
 
 type SortKey = "name" | "command" | "pid" | "user" | "cpuPercent" | "rssBytes" | "memoryPercent";
@@ -66,9 +67,8 @@ export default function ProcessorPage() {
   }
 
   return <main className="shell memory-shell">
-    <div className="ambient ambient-one" /><div className="ambient ambient-two" />
     <section className="content memory-content">
-      <header className="topbar"><div className="breadcrumb"><Link href="/">Workspace</Link><span>/</span><strong>Processor</strong></div><div className="top-actions"><span className="last-sync" role="status" aria-live="polite">{error ? <TriangleAlert size={12} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={12} className="spin" aria-hidden="true" />}{error ? "Processor unavailable" : snapshot ? `Updated ${formatTime(snapshot.updatedAt)}` : "Loading processor"}</span><button className="icon-button" onClick={() => void refresh()} title={error ? "Retry processor details" : "Refresh processor details"} aria-label={error ? "Retry processor details" : "Refresh processor details"}><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><button className="avatar-button">D</button></div></header>
+      <header className="topbar"><div className="breadcrumb"><Link href="/">Workspace</Link><span>/</span><strong>Processor</strong></div><div className="top-actions"><span className="last-sync" role="status" aria-live="polite">{error ? <TriangleAlert size={12} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={12} className="spin" aria-hidden="true" />}{error ? "Processor unavailable" : snapshot ? `Updated ${formatTime(snapshot.updatedAt)}` : "Loading processor"}</span><button className="icon-button" onClick={() => void refresh()} title={error ? "Retry processor details" : "Refresh processor details"} aria-label={error ? "Retry processor details" : "Refresh processor details"}><RefreshCw size={17} className={refreshing ? "spin" : ""} /></button><ThemeToggle /><button className="avatar-button">D</button></div></header>
       <div className="main-inner memory-inner">
         <div className="memory-page-heading"><div><Link className="back-link" href="/"><ArrowLeft size={14} />Overview</Link><p className="eyebrow">System detail</p><h1>Processor</h1><p className="subheading">Host processes using CPU on this device.</p></div><div className="memory-refresh-note" role="status" aria-live="polite" aria-busy={!snapshot && !error}>{error ? <TriangleAlert size={14} aria-hidden="true" /> : snapshot ? <span className="sync-dot" aria-hidden="true" /> : <RefreshCw size={14} className="spin" aria-hidden="true" />}{error ? "Unavailable" : snapshot ? "Live · 5 sec" : "Loading…"}</div></div>
         {snapshot && <section className="memory-summary"><ProcessorSummary label="CPU usage" value={`${formatPercent(snapshot.cpuPercent)}`} detail={`${snapshot.cpuCores} logical cores`} tone="green" icon={<Cpu size={16} />} /><ProcessorSummary label="Load average" value={snapshot.loadAverage.one.toFixed(2)} detail={`5m ${snapshot.loadAverage.five.toFixed(2)} · 15m ${snapshot.loadAverage.fifteen.toFixed(2)}`} tone="purple" icon={<Cpu size={16} />} /><ProcessorSummary label="Processes" value={`${snapshot.processes.length}`} detail="All readable processes" tone="blue" icon={<Cpu size={16} />} /></section>}
