@@ -202,6 +202,13 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
   `> TODO: Record any product-owned or deployment-owned files that agents must never change.`
 - When changing a visual background effect, inspect both CSS declarations and JSX elements that
   render the effect before considering the change complete.
+- For visual requests, confirm the requested scope before adding dashboard-wide sections or
+  navigation changes; keep the implementation limited to the named component.
+- When simplifying application cards, remove technical linkage labels and verbose WebUI status
+  copy unless the user explicitly asks to display them.
+- Use Manrope for application-card status text; reserve DM Mono for compact metadata and telemetry.
+- If `rg` is unavailable in the execution shell, use `grep` or `find` for repository searches and
+  continue without treating the missing utility as a task blocker.
 
 ## Extensibility Hooks
 
