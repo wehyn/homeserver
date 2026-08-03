@@ -101,16 +101,15 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
 .processor-stat-card .progress-track span { background: linear-gradient(90deg, var(--accent-deep), var(--accent)); box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 55%, transparent); }
 .processor-stat-card:hover { border-color: var(--line); box-shadow: 0 16px 34px rgba(0,0,0,.08); }
 
-.processor-stat-card .processor-telemetry { gap: 8px; margin-top: 12px; padding-top: 0; border-top: 0; }
-.processor-stat-card .processor-telemetry-item { padding: 8px 9px 7px; border: 1px solid color-mix(in srgb, var(--accent) 13%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.processor-stat-card { position: relative; }
+.processor-stat-card .processor-telemetry { position: absolute; top: 17px; right: 18px; display: flex; align-items: flex-start; gap: 14px; margin: 0; padding: 0; border: 0; }
+.processor-stat-card .processor-telemetry-item { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .processor-stat-card .processor-telemetry-item span { color: color-mix(in srgb, var(--muted) 88%, var(--text)); font-size: 8px; }
 .processor-stat-card .processor-telemetry-item strong { margin-top: 5px; font-size: 12px; letter-spacing: -.2px; }
-.processor-stat-card .processor-telemetry-item:first-child { background: color-mix(in srgb, var(--orange) 5%, transparent); border-color: color-mix(in srgb, var(--orange) 15%, var(--line)); }
-.processor-stat-card .processor-telemetry-item:last-child { background: color-mix(in srgb, var(--purple) 5%, transparent); border-color: color-mix(in srgb, var(--purple) 15%, var(--line)); }
 
 @media (max-width: 510px) {
   .processor-stat-card .processor-telemetry { gap: 6px; }
-  .processor-stat-card .processor-telemetry-item { padding-left: 7px; padding-right: 7px; }
+  .processor-stat-card .processor-telemetry-item { padding: 0; }
   .processor-stat-card .processor-telemetry-item span { gap: 3px; font-size: 7px; letter-spacing: .1px; }
   .processor-stat-card .processor-telemetry-item strong { font-size: 11px; }
 }
@@ -123,19 +122,30 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
 .form-columns-equal { grid-template-columns: 1fr 1fr; }
 .form-help { color: var(--muted-2); font-size: 9px; line-height: 1.5; margin: -3px 0 15px; }
 
-/* Application cards: compact service identity without changing the dashboard hierarchy. */
-.app-card { border-radius: 14px; box-shadow: 0 14px 30px rgba(0,0,0,.1); }
+/* Application cards: square service tiles focused on app identity. */
+.app-card, .add-card { min-height: 0; aspect-ratio: 1 / 1; }
+.app-card { display: flex; flex-direction: column; border-radius: 14px; box-shadow: 0 14px 30px rgba(0,0,0,.1); }
 .app-card::before { display: none; }
 .app-card:hover { border-color: var(--line); box-shadow: 0 20px 38px rgba(0,0,0,.16); }
-.app-card-top { padding: 16px 16px 0; }
-.app-link { padding: 18px 16px 14px; }
+.app-card .card-menu { position: absolute; top: 14px; right: 14px; z-index: 2; }
+.app-link { flex: 1; flex-direction: column; justify-content: center; gap: 12px; padding: 38px 16px 34px; text-align: center; }
+.app-card .app-icon-large { width: 56px; height: 56px; flex-basis: 56px; border-radius: 15px; }
+.app-card-copy { width: 100%; }
+.app-name-row { justify-content: center; }
+.app-name-row h3 { max-width: 100%; }
 .app-card-bottom { left: 16px; right: 16px; bottom: 15px; }
 .app-card-bottom .launch-link { margin-left: auto; }
 
 html[data-theme="light"] .app-card { box-shadow: 0 14px 30px rgba(15,23,42,.08); }
 
 @media (max-width: 510px) {
-  .app-card-top { padding-left: 14px; padding-right: 14px; }
   .app-link { padding-left: 14px; padding-right: 14px; }
   .app-card-bottom { left: 14px; right: 14px; }
+}
+
+/* Keep application tiles compact instead of stretching them across the page. */
+.app-grid { grid-template-columns: repeat(auto-fill, 180px); justify-content: start; }
+
+@media (max-width: 510px) {
+  .app-grid { grid-template-columns: repeat(auto-fill, 150px); justify-content: center; }
 }
