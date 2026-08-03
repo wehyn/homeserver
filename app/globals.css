@@ -102,3 +102,4 @@ html[data-theme="light"] .toggle span { background: #667085; }
 html[data-theme="light"] .toast { background: #ecfdf3; color: var(--accent-deep); }
 html[data-theme="light"] .sidebar-backdrop { background: rgba(15,23,42,.3); }
 html[data-theme="light"] .filters-viewport::after { background: linear-gradient(90deg, rgba(244,246,248,0), var(--bg)); }
+.app-icon { background: transparent; border: 0; }
