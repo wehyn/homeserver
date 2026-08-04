@@ -17,6 +17,26 @@ export type DockerPort = {
   hostPort: number | null;
 };
 
+export type DockerVolume = {
+  type: "bind" | "volume" | "tmpfs" | "unknown";
+  source: string | null;
+  target: string;
+  mode: string | null;
+};
+
+export type DockerEnvironmentVariable = {
+  name: string;
+  value: string;
+};
+
+export type DockerServiceDetails = {
+  image: string | null;
+  networks: string[];
+  ports: DockerPort[];
+  volumes: DockerVolume[];
+  environment: DockerEnvironmentVariable[];
+};
+
 export type CasaOSWebUI = {
   scheme: "http" | "https";
   hostname: string;
@@ -38,6 +58,9 @@ export type DockerContainer = {
   health: DockerHealthState;
   casaos: CasaOSWebUI | null;
   ports: DockerPort[];
+  networks?: string[];
+  volumes?: DockerVolume[];
+  environment?: DockerEnvironmentVariable[];
   createdAt: string | null;
   startedAt: string | null;
 };

@@ -67,6 +67,9 @@ function isDockerContainer(value: unknown): value is DockerContainer {
     && (casaos === null || isCasaOSWebUI(casaos))
     && Array.isArray(container.ports)
     && container.ports.every(isDockerPort)
+    && isOptionalStringArray(container.networks)
+    && isOptionalDockerVolumes(container.volumes)
+    && isOptionalDockerEnvironment(container.environment)
     && (typeof container.createdAt === "string" || container.createdAt === null)
     && (typeof container.startedAt === "string" || container.startedAt === null);
 }
@@ -81,10 +84,31 @@ function isCasaOSWebUI(value: unknown): value is CasaOSWebUI {
 
 function isDockerPort(value: unknown) {
   const port = asRecord(value);
-  return typeof port?.containerPort === "number"
+  return typeof port?.containerPort === "number" && Number.isInteger(port.containerPort) && port.containerPort >= 0 && port.containerPort <= 65_535
     && ["tcp", "udp", "sctp", "unknown"].includes(String(port.protocol))
     && (typeof port.hostIp === "string" || port.hostIp === null)
-    && (typeof port.hostPort === "number" || port.hostPort === null);
+    && (port.hostPort === null || (typeof port.hostPort === "number" && Number.isInteger(port.hostPort) && port.hostPort >= 0 && port.hostPort <= 65_535));
+}
+
+function isOptionalStringArray(value: unknown) {
+  return value === undefined || (Array.isArray(value) && value.every((item) => typeof item === "string"));
+}
+
+function isOptionalDockerVolumes(value: unknown) {
+  return value === undefined || (Array.isArray(value) && value.every((item) => {
+    const volume = asRecord(item);
+    return ["bind", "volume", "tmpfs", "unknown"].includes(String(volume?.type))
+      && (typeof volume?.source === "string" || volume?.source === null)
+      && typeof volume?.target === "string"
+      && (typeof volume?.mode === "string" || volume?.mode === null);
+  }));
+}
+
+function isOptionalDockerEnvironment(value: unknown) {
+  return value === undefined || (Array.isArray(value) && value.every((item) => {
+    const variable = asRecord(item);
+    return typeof variable?.name === "string" && typeof variable.value === "string";
+  }));
 }
 
 function isDockerState(value: unknown): value is DockerContainerState {
