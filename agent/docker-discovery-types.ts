@@ -44,6 +44,13 @@ export type CasaOSWebUI = {
   index: string;
 };
 
+export type DockerComposeService = {
+  project: string;
+  service: string;
+  casaos: CasaOSWebUI | null;
+  details: DockerServiceDetails;
+};
+
 export type DockerContainer = {
   id: string;
   name: string;
@@ -74,6 +81,8 @@ export type DockerDiscoveryResponse = {
   source: "read-only-agent" | "unavailable";
   servicesRoot: string | null;
   containers: DockerContainer[];
+  /** Compose configuration remains useful when the Docker socket is not enabled. */
+  composeServices?: DockerComposeService[];
   warnings: string[];
   updatedAt: string;
 };

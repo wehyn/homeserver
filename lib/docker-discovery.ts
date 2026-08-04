@@ -1,6 +1,7 @@
 import type {
   CasaOSWebUI,
   DockerContainer,
+  DockerComposeService,
   DockerContainerState,
   DockerDiscoveryResponse,
   DockerHealthState,
@@ -9,6 +10,7 @@ import type {
 export type {
   CasaOSWebUI,
   DockerContainer,
+  DockerComposeService,
   DockerContainerState,
   DockerDiscoveryResponse,
   DockerHealthState,
@@ -44,9 +46,28 @@ export function isDockerDiscoveryResponse(value: unknown): value is DockerDiscov
     && (response.servicesRoot === null || typeof response.servicesRoot === "string")
     && Array.isArray(response.containers)
     && response.containers.every(isDockerContainer)
+    && (response.composeServices === undefined || (Array.isArray(response.composeServices) && response.composeServices.every(isDockerComposeService)))
     && Array.isArray(response.warnings)
     && response.warnings.every((warning) => typeof warning === "string")
     && typeof response.updatedAt === "string";
+}
+
+function isDockerComposeService(value: unknown): value is DockerComposeService {
+  const service = asRecord(value);
+  const details = asRecord(service?.details);
+  return typeof service?.project === "string"
+    && typeof service.service === "string"
+    && (service.casaos === null || isCasaOSWebUI(service.casaos))
+    && Boolean(details)
+    && (typeof details?.image === "string" || details?.image === null)
+    && Array.isArray(details?.networks)
+    && details.networks.every((network) => typeof network === "string")
+    && Array.isArray(details?.ports)
+    && details.ports.every(isDockerPort)
+    && Array.isArray(details?.volumes)
+    && details.volumes.every(isDockerVolume)
+    && Array.isArray(details?.environment)
+    && details.environment.every(isDockerEnvironmentVariable);
 }
 
 function isDockerContainer(value: unknown): value is DockerContainer {
@@ -95,20 +116,24 @@ function isOptionalStringArray(value: unknown) {
 }
 
 function isOptionalDockerVolumes(value: unknown) {
-  return value === undefined || (Array.isArray(value) && value.every((item) => {
-    const volume = asRecord(item);
-    return ["bind", "volume", "tmpfs", "unknown"].includes(String(volume?.type))
-      && (typeof volume?.source === "string" || volume?.source === null)
-      && typeof volume?.target === "string"
-      && (typeof volume?.mode === "string" || volume?.mode === null);
-  }));
+  return value === undefined || (Array.isArray(value) && value.every(isDockerVolume));
 }
 
 function isOptionalDockerEnvironment(value: unknown) {
-  return value === undefined || (Array.isArray(value) && value.every((item) => {
-    const variable = asRecord(item);
-    return typeof variable?.name === "string" && typeof variable.value === "string";
-  }));
+  return value === undefined || (Array.isArray(value) && value.every(isDockerEnvironmentVariable));
+}
+
+function isDockerVolume(value: unknown) {
+  const volume = asRecord(value);
+  return ["bind", "volume", "tmpfs", "unknown"].includes(String(volume?.type))
+    && (typeof volume?.source === "string" || volume?.source === null)
+    && typeof volume?.target === "string"
+    && (typeof volume?.mode === "string" || volume?.mode === null);
+}
+
+function isDockerEnvironmentVariable(value: unknown) {
+  const variable = asRecord(value);
+  return typeof variable?.name === "string" && typeof variable.value === "string";
 }
 
 function isDockerState(value: unknown): value is DockerContainerState {

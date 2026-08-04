@@ -8,6 +8,7 @@ export type DockerHealthState = "healthy" | "unhealthy" | "starting" | "none" | 
 export type CasaOSScheme = "http" | "https";
 
 export type DockerAppDetails = {
+  source: "container" | "compose";
   image: string | null;
   networks: string[];
   ports: DockerPort[];
@@ -43,7 +44,7 @@ export type ManagedApp = {
   casaosHostname?: string;
   casaosPortMap?: string;
   casaosIndex?: string;
-  /** Live Docker metadata; intentionally not persisted in SQLite. */
+  /** Live or Compose-derived Docker metadata; intentionally not persisted in SQLite. */
   dockerDetails?: DockerAppDetails;
 };
 
