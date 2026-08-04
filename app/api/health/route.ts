@@ -8,16 +8,17 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const requestedUrl = requestUrl.searchParams.get("url");
   const appId = requestUrl.searchParams.get("id");
-  const app = appId ? findApp(appId) : undefined;
-  const url = app ? resolveHealthTarget(app) : requestedUrl;
+  if (!appId) return NextResponse.json({ status: "unknown", error: "id is required" }, { status: 400 });
+  const app = findApp(appId);
+  if (!app) return NextResponse.json({ status: "unknown", error: "application not found" }, { status: 404 });
+  const url = resolveHealthTarget(app);
   if (!url) return NextResponse.json({ status: "unknown" }, { status: 400 });
 
   try {
     const target = new URL(url);
     if (!["http:", "https:"].includes(target.protocol)) throw new Error("Unsupported protocol");
-    const allowInsecureTls = app?.allowInsecureTls === true;
+    const allowInsecureTls = app.allowInsecureTls === true;
     const started = Date.now();
     const response = allowInsecureTls && target.protocol === "https:"
       ? await requestWithInsecureTls(target)
@@ -25,10 +26,10 @@ export async function GET(request: Request) {
     const elapsed = Date.now() - started;
     const successful = isCasaOSHealthSuccess(response.statusCode);
     const status = (successful ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
-    if (appId) updateAppStatus(appId, status);
+    updateAppStatus(appId, status);
     return NextResponse.json({ status, latency: elapsed, statusCode: response.statusCode });
   } catch {
-    if (appId) updateAppStatus(appId, "offline");
+    updateAppStatus(appId, "offline");
     return NextResponse.json({ status: "offline" });
   }
 }

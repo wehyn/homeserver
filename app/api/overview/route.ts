@@ -90,7 +90,14 @@ function readCpuTimes(): CpuTimes {
 
 function getStorageUsage() {
   const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "nimbus.db");
-  const stats = statfsSync(path.dirname(path.resolve(databasePath)));
+  let stats;
+  try {
+    stats = statfsSync(path.dirname(path.resolve(databasePath)));
+  } catch {
+    // The overview can race the first database request on a fresh local install.
+    // Use the application filesystem until the database directory exists.
+    stats = statfsSync(process.cwd());
+  }
   const totalBytes = stats.blocks * stats.bsize;
   const availableBytes = stats.bavail * stats.bsize;
   const usedBytes = totalBytes - availableBytes;

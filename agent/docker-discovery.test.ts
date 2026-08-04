@@ -5,7 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   collectDockerSnapshot,
+  normalizeDockerContainer,
   parseCasaOSMetadata,
+  parseComposeProject,
+  parseComposeServiceDetails,
   parseComposeServices,
   readComposeMetadata,
 } from "./docker-discovery.ts";
@@ -21,6 +24,136 @@ test("parses CasaOS WebUI metadata and Compose services", () => {
   assert.deepEqual(parseComposeServices(compose), ["web", "database"]);
   assert.deepEqual(parseComposeServices("services:\n    crafty:\n      image: crafty:latest\n"), ["crafty"]);
   assert.deepEqual(parseComposeServices("services:\n web:\n  image: demo:latest\n"), ["web"]);
+  assert.deepEqual(parseComposeServiceDetails(compose, "web"), {
+    image: "example:latest",
+    networks: [],
+    ports: [],
+    volumes: [],
+    environment: [],
+  });
+});
+
+test("parses Docker details from a Compose service", () => {
+  const compose = `services:
+  app:
+    image: example/app:2.4
+    ports:
+      - "127.0.0.1:8080:80"
+      - "8443:443/udp"
+    networks:
+      - proxy
+      - default
+    volumes:
+      - ./config:/etc/example:ro
+      - example-data:/var/lib/example
+    environment:
+      APP_MODE: production
+      - APP_NAME=Example
+      - EMPTY_VALUE
+`;
+  assert.deepEqual(parseComposeServiceDetails(compose, "app"), {
+    image: "example/app:2.4",
+    networks: ["default", "proxy"],
+    ports: [
+      { containerPort: 80, protocol: "tcp", hostIp: "127.0.0.1", hostPort: 8080 },
+      { containerPort: 443, protocol: "udp", hostIp: null, hostPort: 8443 },
+    ],
+    volumes: [
+      { type: "bind", source: "./config", target: "/etc/example", mode: "ro" },
+      { type: "volume", source: "example-data", target: "/var/lib/example", mode: null },
+    ],
+    environment: [
+      { name: "APP_MODE", value: "production" },
+      { name: "APP_NAME", value: "Example" },
+      { name: "EMPTY_VALUE", value: "" },
+    ],
+  });
+});
+
+test("parses long-form Compose ports and volumes", () => {
+  const compose = `services:
+  app:
+    ports:
+      - target: 2283
+        published: 2283
+        protocol: tcp
+        host_ip: "::"
+      - target: 8080
+    volumes:
+      - type: bind
+        source: ./config
+        target: /etc/example
+        read_only: true
+      - type: volume
+        source: example-cache
+        target: /var/cache/example
+`;
+  assert.deepEqual(parseComposeServiceDetails(compose, "app"), {
+    image: null,
+    networks: [],
+    ports: [
+      { containerPort: 2283, protocol: "tcp", hostIp: "0.0.0.0", hostPort: 2283 },
+      { containerPort: 8080, protocol: "tcp", hostIp: null, hostPort: null },
+    ],
+    volumes: [
+      { type: "bind", source: "./config", target: "/etc/example", mode: "ro" },
+      { type: "volume", source: "example-cache", target: "/var/cache/example", mode: null },
+    ],
+    environment: [],
+  });
+});
+
+test("parses bracketed IPv6 Compose port bindings", () => {
+  const compose = `services:
+  app:
+    ports:
+      - "[::1]:8443:443/tcp"
+`;
+  assert.deepEqual(parseComposeServiceDetails(compose, "app").ports, [
+    { containerPort: 443, protocol: "tcp", hostIp: "::1", hostPort: 8443 },
+]);
+});
+
+test("handles inline Compose collections, anonymous volumes, and nested names", () => {
+  const compose = `name: actual-project
+services:
+  app:
+    labels:
+      name: nested-value
+    ports: ["80:80", "127.0.0.1:8080:80"]
+    networks: [proxy, default]
+    volumes:
+      - /var/lib/app
+      - /config:ro
+`;
+  assert.equal(parseComposeProject(compose), "actual-project");
+  assert.deepEqual(parseComposeServiceDetails(compose, "app"), {
+    image: null,
+    networks: ["default", "proxy"],
+    ports: [
+      { containerPort: 80, protocol: "tcp", hostIp: null, hostPort: 80 },
+      { containerPort: 80, protocol: "tcp", hostIp: "127.0.0.1", hostPort: 8080 },
+    ],
+    volumes: [
+      { type: "volume", source: null, target: "/config", mode: "ro" },
+      { type: "volume", source: null, target: "/var/lib/app", mode: null },
+    ],
+    environment: [],
+  });
+});
+
+test("prefers the inspected image over an interpolated Compose image", () => {
+  const container = normalizeDockerContainer(
+    { Id: "container-id", Image: "demo:release", State: "running", Ports: [] },
+    { Id: "container-id", Config: { Image: "demo:release" } },
+    [{
+      project: "demo",
+      service: "web",
+      casaos: null,
+      details: { image: "demo:${TAG:-latest}", networks: [], ports: [], volumes: [], environment: [] },
+    }],
+  );
+  assert.equal(container?.image, "demo:release");
 });
 
 test("indexes CasaOS metadata beneath the configured services root", async () => {
@@ -35,6 +168,7 @@ test("indexes CasaOS metadata beneath the configured services root", async () =>
       project: "demo",
       service: "demo",
       casaos: { scheme: "https", hostname: "demo.local", portMap: "8443", index: "/" },
+      details: { image: "demo:latest", networks: [], ports: [], volumes: [], environment: [] },
     }]);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -54,15 +188,47 @@ test("collects Docker state through read-only GET-shaped requests", async () => 
       return {
         Id: "container-id",
         Name: "/demo",
-        Config: { Image: "demo:latest", Labels: { "com.docker.compose.project": "demo", "com.docker.compose.service": "web" } },
+        Config: {
+          Image: "demo:latest",
+          Env: ["APP_MODE=production", "APP_SECRET=secret-value"],
+          Labels: { "com.docker.compose.project": "demo", "com.docker.compose.service": "web" },
+        },
         State: { Status: "running", StartedAt: "2026-08-03T00:00:00.000Z", Health: { Status: "healthy" } },
+        NetworkSettings: { Networks: { proxy: {}, default: {} }, Ports: { "8080/tcp": [{ HostIp: "127.0.0.1", HostPort: "18080" }] } },
+        Mounts: [{ Type: "bind", Source: "/srv/demo", Destination: "/data", RW: false }],
       };
     },
   });
   assert.equal(snapshot.available, true);
   assert.equal(snapshot.containers[0]?.state, "running");
   assert.equal(snapshot.containers[0]?.health, "healthy");
+  assert.deepEqual(snapshot.containers[0]?.networks, ["default", "proxy"]);
+  assert.deepEqual(snapshot.containers[0]?.ports, [{ containerPort: 8080, protocol: "tcp", hostIp: "127.0.0.1", hostPort: 18080 }]);
+  assert.deepEqual(snapshot.containers[0]?.volumes, [{ type: "bind", source: "/srv/demo", target: "/data", mode: "ro" }]);
+  assert.deepEqual(snapshot.containers[0]?.environment, [{ name: "APP_MODE", value: "production" }, { name: "APP_SECRET", value: "<redacted>" }]);
   assert.deepEqual(calls, ["/containers/json?all=true", "/containers/container-id/json"]);
+});
+
+test("collapses IPv4 and IPv6 wildcard bindings for one published port", async () => {
+  const snapshot = await collectDockerSnapshot({
+    socketPath: "/var/run/docker.sock",
+    servicesRoot: "",
+    requestJson: async (path) => path === "/containers/json?all=true"
+      ? [{ Id: "container-id", Names: ["/demo"], Image: "demo:latest", State: "running", Ports: [
+        { PrivatePort: 2283, Type: "tcp", IP: "0.0.0.0", PublicPort: 2283 },
+        { PrivatePort: 2283, Type: "tcp", IP: "::", PublicPort: 2283 },
+      ] }]
+      : {
+        Id: "container-id",
+        Config: { Image: "demo:latest" },
+        State: { Status: "running" },
+        NetworkSettings: { Ports: { "2283/tcp": [
+          { HostIp: "0.0.0.0", HostPort: "2283" },
+          { HostIp: "::", HostPort: "2283" },
+        ] } },
+      },
+  });
+  assert.deepEqual(snapshot.containers[0]?.ports, [{ containerPort: 2283, protocol: "tcp", hostIp: "0.0.0.0", hostPort: 2283 }]);
 });
 
 test("reports Docker discovery as unavailable when the socket is disabled", async () => {

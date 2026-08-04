@@ -1,9 +1,19 @@
+import type { DockerEnvironmentVariable, DockerPort, DockerVolume } from "@/agent/docker-discovery-types";
+
 export type AppStatus = "online" | "degraded" | "offline" | "unknown";
 export type AppSource = "manual" | "docker";
 export type ActivityType = "app-created" | "app-updated" | "app-deleted" | "status-changed";
 export type DockerContainerState = "created" | "restarting" | "running" | "removing" | "paused" | "exited" | "dead" | "unknown";
 export type DockerHealthState = "healthy" | "unhealthy" | "starting" | "none" | "unknown";
 export type CasaOSScheme = "http" | "https";
+
+export type DockerAppDetails = {
+  image: string | null;
+  networks: string[];
+  ports: DockerPort[];
+  volumes: DockerVolume[];
+  environment: DockerEnvironmentVariable[];
+};
 
 export type ManagedApp = {
   id: string;
@@ -33,6 +43,8 @@ export type ManagedApp = {
   casaosHostname?: string;
   casaosPortMap?: string;
   casaosIndex?: string;
+  /** Live Docker metadata; intentionally not persisted in SQLite. */
+  dockerDetails?: DockerAppDetails;
 };
 
 export type ActivityEvent = {

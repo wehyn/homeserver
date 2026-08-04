@@ -92,25 +92,26 @@ function getDatabase() {
 }
 
 function toRow(app: ManagedApp) {
+  const { dockerDetails: _dockerDetails, ...persistedApp } = app;
   return {
-    ...app,
-    healthUrl: app.healthUrl ?? null,
-    allowInsecureTls: app.allowInsecureTls ? 1 : 0,
-    isFavorite: app.isFavorite ? 1 : 0,
-    isVisible: app.isVisible ? 1 : 0,
-    dockerProject: app.dockerProject ?? null,
-    dockerService: app.dockerService ?? null,
-    containerId: app.containerId ?? null,
-    containerName: app.containerName ?? null,
-    containerImage: app.containerImage ?? null,
-    containerState: app.containerState ?? "unknown",
-    containerHealth: app.containerHealth ?? "unknown",
-    containerStartedAt: app.containerStartedAt ?? null,
-    containerObservedAt: app.containerObservedAt ?? null,
-    casaosScheme: app.casaosScheme ?? null,
-    casaosHostname: app.casaosHostname ?? null,
-    casaosPortMap: app.casaosPortMap ?? null,
-    casaosIndex: app.casaosIndex ?? null,
+    ...persistedApp,
+    healthUrl: persistedApp.healthUrl ?? null,
+    allowInsecureTls: persistedApp.allowInsecureTls ? 1 : 0,
+    isFavorite: persistedApp.isFavorite ? 1 : 0,
+    isVisible: persistedApp.isVisible ? 1 : 0,
+    dockerProject: persistedApp.dockerProject ?? null,
+    dockerService: persistedApp.dockerService ?? null,
+    containerId: persistedApp.containerId ?? null,
+    containerName: persistedApp.containerName ?? null,
+    containerImage: persistedApp.containerImage ?? null,
+    containerState: persistedApp.containerState ?? "unknown",
+    containerHealth: persistedApp.containerHealth ?? "unknown",
+    containerStartedAt: persistedApp.containerStartedAt ?? null,
+    containerObservedAt: persistedApp.containerObservedAt ?? null,
+    casaosScheme: persistedApp.casaosScheme ?? null,
+    casaosHostname: persistedApp.casaosHostname ?? null,
+    casaosPortMap: persistedApp.casaosPortMap ?? null,
+    casaosIndex: persistedApp.casaosIndex ?? null,
   };
 }
 
@@ -227,18 +228,31 @@ function addColumnIfMissing(database: DatabaseSync, columns: { name?: unknown }[
 
 function findContainerForApp(app: ManagedApp, containers: DockerContainer[], claimed: Set<string>) {
   const candidates = containers.filter((container) => !claimed.has(container.id));
+  if (app.containerId) {
+    const byId = candidates.find((container) => container.id === app.containerId);
+    if (byId) return byId;
+  }
   if (app.dockerProject && app.dockerService) {
     return candidates.find((container) => container.compose.project === app.dockerProject && container.compose.service === app.dockerService);
   }
-  if (app.dockerService) {
-    return candidates.find((container) => container.compose.service === app.dockerService);
-  }
   const byLabel = candidates.find((container) => container.labels["com.nimbus.app-id"] === app.id);
   if (byLabel) return byLabel;
+  if (app.dockerService) {
+    const serviceMatches = candidates.filter((container) => container.compose.service === app.dockerService);
+    if (serviceMatches.length === 1) return serviceMatches[0];
+    if (serviceMatches.length > 1) return undefined;
+  }
   const normalizedIds = new Set([normalizeIdentifier(app.id), normalizeIdentifier(app.name)].filter(Boolean));
   if (app.dockerProject) {
     const projectMatches = candidates.filter((container) => container.compose.project === app.dockerProject);
-    if (projectMatches.length) return chooseProjectContainer(projectMatches, normalizedIds);
+    if (projectMatches.length === 1) return projectMatches[0];
+    const exactProjectMatch = projectMatches.filter((container) => {
+      const values = [container.name, container.compose.service].map((value) => normalizeIdentifier(value || ""));
+      return values.some((value) => value && normalizedIds.has(value));
+    });
+    if (exactProjectMatch.length === 1) return exactProjectMatch[0];
+    if (projectMatches.length > 1) return undefined;
+    if (projectMatches.length === 0) return undefined;
   }
   const exact = candidates.filter((container) => {
     const values = [container.name, container.compose.project, container.compose.service].map((value) => normalizeIdentifier(value || ""));

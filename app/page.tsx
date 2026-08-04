@@ -95,9 +95,12 @@ export default function Home() {
   const [overviewRefreshing, setOverviewRefreshing] = useState(true);
   const [overviewError, setOverviewError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [mutationError, setMutationError] = useState("");
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
   const activeHealthRefreshesRef = useRef(0);
+  const savedNoticeTimeoutRef = useRef<number | null>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLButtonElement>(null);
   const mobileSidebarCloseRef = useRef<HTMLButtonElement>(null);
@@ -107,6 +110,7 @@ export default function Home() {
   const openSettings = useCallback((nextEditing: ManagedApp | null) => {
     const activeElement = document.activeElement;
     settingsTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+    setMutationError("");
     setEditing(nextEditing);
     setSettingsOpen(true);
   }, []);
@@ -143,6 +147,10 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => () => {
+    if (savedNoticeTimeoutRef.current !== null) window.clearTimeout(savedNoticeTimeoutRef.current);
+  }, []);
+
   const loadApps = useCallback(async () => {
     setAppsLoading(true);
     setAppsError("");
@@ -163,10 +171,15 @@ export default function Home() {
   }, [loadApps]);
 
   const refreshActivities = useCallback(async () => {
-    const response = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
-    if (!response?.ok) return;
-    const data = await response.json() as { activities?: ActivityEvent[] };
-    if (data.activities) setActivities(data.activities);
+    try {
+      const response = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
+      if (!response?.ok) return;
+      const data = await response.json() as { activities?: ActivityEvent[] };
+      if (data.activities) setActivities(data.activities);
+    } catch {
+      // Activity history is supplementary; a malformed or unavailable response must not
+      // make an otherwise successful app mutation look like it failed.
+    }
   }, []);
 
   useEffect(() => {
@@ -201,8 +214,7 @@ export default function Home() {
     setRefreshing(true);
     try {
       const results = await Promise.all(checkedApps.map(async (app) => {
-        const healthTarget = app.healthUrl || app.url;
-        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}&url=${encodeURIComponent(healthTarget)}`).catch(() => null);
+        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}`).catch(() => null);
         const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
         return { id: app.id, status: result.status as AppStatus };
       }));
@@ -237,20 +249,45 @@ export default function Home() {
   const storageLegendValue = (value?: string) => !overview || !value ? "—" : overviewError ? `${value} · stale` : value;
 
   async function saveApp(app: ManagedApp) {
-    setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? app : item) : [...current, app]);
-    await fetch("/api/apps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(app) }).catch(() => undefined);
-    setAppsError("");
-    await refreshActivities();
-    setEditing(null); setSavedNotice(true); window.setTimeout(() => setSavedNotice(false), 2200);
+    if (saving) return;
+    setSaving(true);
+    setMutationError("");
+    setSavedNotice(false);
+    try {
+      const response = await fetch("/api/apps", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(app) }).catch(() => null);
+      const result = response ? await response.json().catch(() => null) as { app?: ManagedApp; error?: string } | null : null;
+      if (!response?.ok || !result?.app) throw new Error(result?.error || "Unable to save application.");
+      setApps((current) => current.some((item) => item.id === app.id) ? current.map((item) => item.id === app.id ? result.app! : item) : [...current, result.app!]);
+      setAppsError("");
+      await refreshActivities();
+      setEditing(null);
+      setSavedNotice(true);
+      if (savedNoticeTimeoutRef.current !== null) window.clearTimeout(savedNoticeTimeoutRef.current);
+      savedNoticeTimeoutRef.current = window.setTimeout(() => setSavedNotice(false), 2200);
+      void loadApps();
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to save application.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function deleteApp(id: string) {
+    setMutationError("");
+    setSavedNotice(false);
     setDeletingId(id);
-    await new Promise((resolve) => window.setTimeout(resolve, 180));
-    setApps((current) => current.filter((app) => app.id !== id));
-    setDeletingId(null);
-    await fetch("/api/apps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => undefined);
-    await refreshActivities();
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
+      const response = await fetch("/api/apps", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) }).catch(() => null);
+      const result = response ? await response.json().catch(() => null) as { error?: string } | null : null;
+      if (!response?.ok) throw new Error(result?.error || "Unable to delete application.");
+      setApps((current) => current.filter((app) => app.id !== id));
+      await refreshActivities();
+    } catch (caught) {
+      setMutationError(caught instanceof Error ? caught.message : "Unable to delete application.");
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   return <main className="shell">
@@ -280,15 +317,16 @@ export default function Home() {
       </div>
     </section>
     <AnimatePresence initial={false}>
-      {settingsOpen && <motion.div key="settings-panel" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
+      {settingsOpen && <motion.div key="application-modal" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} saving={saving} mutationError={mutationError} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
     </AnimatePresence>
     {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
+    {mutationError && <div className="toast toast-error" role="alert"><TriangleAlert size={16} />{mutationError}</div>}
   </main>;
 }
 
 function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
   return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}>
-    <button type="button" className="card-menu" onClick={onEdit} aria-label={`Edit ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button>
+    <button type="button" className="card-menu" onClick={onEdit} aria-label={`Open details for ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button>
     <a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div></div></a>
     <div className="app-card-bottom"><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div>
   </article>;
@@ -334,7 +372,7 @@ function formatRelativeTime(createdAt: string) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-function SettingsPanel({ apps, editing, deletingId, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; deletingId: string | null; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+function SettingsPanel({ apps, editing, deletingId, saving, mutationError, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; deletingId: string | null; saving: boolean; mutationError: string; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -367,17 +405,66 @@ function SettingsPanel({ apps, editing, deletingId, onClose, onEdit, onSave, onD
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editing, onClose]);
 
-  return <aside ref={panelRef} className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">Application management</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close settings"><X size={19} aria-hidden="true" /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} isNew={!apps.some((app) => app.id === editing.id)} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></aside>;
+  return <section ref={panelRef} className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">{editing ? "Application details" : "Application management"}</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close application modal"><X size={19} aria-hidden="true" /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} isNew={!apps.some((app) => app.id === editing.id)} saving={saving} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></section>;
 }
 
-function AppForm({ app, isNew, onCancel, onSave, onDelete }: { app: ManagedApp; isNew: boolean; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
-  const [form, setForm] = useState(app); const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
+function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: ManagedApp; isNew: boolean; saving: boolean; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+  const [form, setForm] = useState(app);
+  const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
   const handleDelete = () => {
     if (!window.confirm(`Delete ${form.name || "this application"}? This cannot be undone.`)) return;
     onDelete(form.id);
     onCancel();
   };
-  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}><button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button><div className="form-title"><AppIcon app={form} large proxy={false} /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div><label>Name<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label><label>Launch URL<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label><div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div><label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label><label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label><label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label><div className="form-columns form-columns-equal"><label>Compose project <span className="optional">optional</span><input value={form.dockerProject || ""} onChange={(event) => update("dockerProject", event.target.value)} placeholder="project-name" /></label><label>Compose service <span className="optional">optional</span><input value={form.dockerService || ""} onChange={(event) => update("dockerService", event.target.value)} placeholder="service-name" /></label></div><label className="toggle-row"><span><strong>Allow self-signed TLS</strong><small>Health checks and favicon fetching; use for trusted private services.</small></span><button type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-pressed={form.allowInsecureTls}><span /></button></label><label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label><div className="form-actions"><button type="button" className="button subtle" onClick={onCancel}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary"><Check size={16} aria-hidden="true" />Save changes</button></div></form>;
+  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
+    <button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button>
+    <div className="form-title"><AppIcon app={form} large proxy={false} /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div>
+    <label>Title<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label>
+    <label>Web UI<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label>
+    <div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div>
+    <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label>
+    <label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label>
+    <label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label>
+    <div className="form-columns form-columns-equal"><label>Compose project <span className="optional">optional</span><input value={form.dockerProject || ""} onChange={(event) => update("dockerProject", event.target.value)} placeholder="project-name" /></label><label>Compose service <span className="optional">optional</span><input value={form.dockerService || ""} onChange={(event) => update("dockerService", event.target.value)} placeholder="service-name" /></label></div>
+    <DockerDetails app={form} />
+    <label className="toggle-row"><span><strong>Allow self-signed TLS</strong><small>Health checks and favicon fetching; use for trusted private services.</small></span><button type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-pressed={form.allowInsecureTls}><span /></button></label>
+    <label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label>
+    <div className="form-actions"><button type="button" className="button subtle" onClick={onCancel} disabled={saving}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete} disabled={saving}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary" disabled={saving}><Check size={16} aria-hidden="true" />{saving ? "Saving…" : "Save changes"}</button></div>
+  </form>;
+}
+
+function DockerDetails({ app }: { app: ManagedApp }) {
+  const details = app.dockerDetails;
+  const image = details?.image || app.containerImage || "Unavailable";
+  const networks = details?.networks?.length ? details.networks.join(", ") : "Unavailable";
+  const publishedPorts = details?.ports?.filter((port) => port.hostPort !== null);
+  return <section className="docker-details" aria-labelledby="docker-details-title">
+    <div className="panel-section-heading"><div><h3 id="docker-details-title">Docker details</h3><p>Read-only metadata from the matching Docker container and Compose service.</p></div>{app.containerState && <span className={`container-status container-${app.containerState}`}><span className="container-status-dot" />{app.containerState}</span>}</div>
+    <div className="docker-metadata-grid">
+      <MetadataItem label="Docker image tag" value={image} mono />
+      <MetadataItem label="Network" value={networks} />
+    </div>
+    <DockerMetadataList label="Ports" empty={details ? "No published ports" : "Unavailable"} items={publishedPorts?.map(formatDockerPort)} />
+    <DockerMetadataList label="Volumes" empty="Unavailable" items={details?.volumes?.map(formatDockerVolume)} />
+    <DockerMetadataList label="Environment variables" empty="Unavailable" items={details?.environment?.map((variable) => `${variable.name}=${variable.value}`)} mono />
+  </section>;
+}
+
+function MetadataItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return <div className="docker-metadata-item"><span>{label}</span><strong className={mono ? "docker-mono" : ""}>{value}</strong></div>;
+}
+
+function DockerMetadataList({ label, empty, items, mono = false }: { label: string; empty: string; items?: string[]; mono?: boolean }) {
+  return <div className="docker-metadata-list"><span>{label}</span>{items?.length ? <ul>{items.map((item, index) => <li key={`${label}-${index}`} className={mono ? "docker-mono" : ""}>{item}</li>)}</ul> : <strong>{empty}</strong>}</div>;
+}
+
+function formatDockerPort(port: NonNullable<ManagedApp["dockerDetails"]>["ports"][number]) {
+  const host = port.hostPort === null ? "unpublished" : `${port.hostIp && port.hostIp !== "0.0.0.0" ? `${port.hostIp}:` : ""}${port.hostPort}`;
+  return `${host} → ${port.containerPort}/${port.protocol}`;
+}
+
+function formatDockerVolume(volume: NonNullable<ManagedApp["dockerDetails"]>["volumes"][number]) {
+  return `${volume.source || "anonymous"} → ${volume.target}${volume.mode ? ` (${volume.mode})` : ""}`;
 }
 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", allowInsecureTls: false, status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
