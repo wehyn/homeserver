@@ -124,6 +124,15 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
 .form-columns-equal { grid-template-columns: 1fr 1fr; }
 .form-help { color: var(--muted-2); font-size: 9px; line-height: 1.5; margin: -3px 0 15px; }
 .docker-details { margin: 25px 0 4px; }
+.docker-details-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 15px; }
+.docker-details-heading h3 { font-size: 14px; }
+.docker-details-heading p { max-width: 430px; color: var(--muted); font-size: 10px; line-height: 1.45; margin-top: 5px; }
+.docker-source { flex: 0 0 auto; padding: 5px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font: 600 9px 'Manrope', sans-serif; }
+.docker-source-container { border-color: rgba(101,230,165,.25); color: var(--accent); background: rgba(101,230,165,.08); }
+.docker-source-compose { border-color: rgba(139,214,255,.25); color: var(--blue); background: rgba(139,214,255,.08); }
+.docker-details-empty { margin-bottom: 14px; padding: 11px 12px; border: 1px dashed var(--line); border-radius: 7px; background: rgba(255,255,255,.025); }
+.docker-details-empty strong { display: block; color: var(--text); font-size: 11px; }
+.docker-details-empty p { color: var(--muted); font-size: 10px; line-height: 1.5; margin-top: 4px; }
 .docker-metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .docker-metadata-item, .docker-metadata-list { min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .docker-metadata-item > span, .docker-metadata-list > span { display: block; color: var(--muted); font: 600 11px 'Manrope', sans-serif; letter-spacing: 0; text-transform: none; }
@@ -146,6 +155,8 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
   .panel-backdrop { padding: 8px; }
   .settings-panel { max-height: calc(100vh - 16px); padding: 22px 18px; border-radius: 14px; }
   .docker-metadata-grid { grid-template-columns: 1fr; }
+  .docker-details-heading { display: block; }
+  .docker-source { display: inline-block; margin-top: 10px; }
 }
 
 /* Application cards: square service tiles focused on app identity. */
