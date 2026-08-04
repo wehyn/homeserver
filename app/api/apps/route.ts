@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { listApps, reconcileDockerApps, removeApp, saveApp } from "@/lib/db";
 import { fetchDockerDiscovery } from "@/lib/docker-discovery";
+import { resolveDockerDetails } from "@/lib/docker-details";
 import { parseManagedAppPayload } from "@/lib/app-validation";
-import type { DockerContainer } from "@/agent/docker-discovery-types";
 import type { ManagedApp } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,7 +13,10 @@ export async function GET() {
   const reconciledApps = discovery.available
     ? reconcileDockerApps(discovery.containers, { preserveUnmatched: discovery.status === "partial" })
     : listApps();
-  const apps = reconciledApps.map((app) => ({ ...app, dockerDetails: findDockerDetails(app, discovery.containers) }));
+  const apps = reconciledApps.map((app) => {
+    const dockerDetails = resolveDockerDetails(app, discovery.containers, discovery.composeServices || []);
+    return dockerDetails ? { ...app, dockerDetails } : app;
+  });
   return NextResponse.json({
     apps,
     docker: {
@@ -50,16 +53,4 @@ async function readJson(request: Request): Promise<unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function findDockerDetails(app: ManagedApp, containers: DockerContainer[]) {
-  const container = containers.find((candidate) => candidate.id === app.containerId);
-  if (!container && !app.containerImage) return undefined;
-  return {
-    image: container?.image || app.containerImage || null,
-    networks: container?.networks || [],
-    ports: container?.ports || [],
-    volumes: container?.volumes || [],
-    environment: container?.environment || [],
-  };
 }

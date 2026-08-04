@@ -5,6 +5,7 @@ import type {
   CasaOSWebUI,
   DockerContainer,
   DockerContainerState,
+  DockerComposeService,
   DockerDiscoveryResponse,
   DockerEnvironmentVariable,
   DockerHealthState,
@@ -29,17 +30,25 @@ const composeFileNames = new Set(["docker-compose.yml", "docker-compose.yaml", "
 export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}): Promise<DockerDiscoveryResponse> {
   const socketPath = options.socketPath ?? process.env.DOCKER_SOCKET ?? "";
   const servicesRoot = options.servicesRoot ?? process.env.DOCKER_SERVICES_ROOT ?? "/host/services";
-  if (!socketPath) return createUnavailableDockerDiscovery("Docker discovery is not configured; the Docker socket is disabled.", servicesRoot);
+  const metadata = await readComposeMetadata(servicesRoot);
+  const composeServices = metadata.entries.map(toDockerComposeService);
+  if (!socketPath) {
+    return createUnavailableDockerDiscovery(
+      "Docker discovery is not configured; the Docker socket is disabled.",
+      servicesRoot,
+      composeServices,
+      metadata.warnings,
+    );
+  }
 
   const requestJson = options.requestJson || ((path, init) => requestDockerSocket(socketPath, path, init?.signal, options.timeoutMs || DEFAULT_TIMEOUT_MS));
   let summaries: unknown[];
   try {
     summaries = parseDockerContainerList(await requestJson("/containers/json?all=true"));
   } catch (error) {
-    return createUnavailableDockerDiscovery(`Docker discovery is unavailable: ${getErrorMessage(error)}.`, servicesRoot);
+    return createUnavailableDockerDiscovery(`Docker discovery is unavailable: ${getErrorMessage(error)}.`, servicesRoot, composeServices, metadata.warnings);
   }
 
-  const metadata = await readComposeMetadata(servicesRoot);
   const warnings = [...metadata.warnings];
   const containers: DockerContainer[] = [];
   for (const summary of summaries) {
@@ -71,12 +80,18 @@ export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}
     source: "read-only-agent",
     servicesRoot: servicesRoot || null,
     containers: containers.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
+    composeServices,
     warnings: uniqueWarnings,
     updatedAt: new Date().toISOString(),
   };
 }
 
-export function createUnavailableDockerDiscovery(warning: string, servicesRoot: string | null = null): DockerDiscoveryResponse {
+export function createUnavailableDockerDiscovery(
+  warning: string,
+  servicesRoot: string | null = null,
+  composeServices: DockerComposeService[] = [],
+  additionalWarnings: string[] = [],
+): DockerDiscoveryResponse {
   return {
     schemaVersion: 1,
     available: false,
@@ -84,7 +99,8 @@ export function createUnavailableDockerDiscovery(warning: string, servicesRoot: 
     source: "unavailable",
     servicesRoot: servicesRoot || null,
     containers: [],
-    warnings: [warning],
+    composeServices,
+    warnings: [...new Set([warning, ...additionalWarnings])],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -164,7 +180,10 @@ export async function readComposeMetadata(root: string): Promise<{ entries: Comp
       const relativeParts = relativeFile.split("/");
       const project = parseComposeProject(text) || (relativeParts.length > 1 ? relativeParts[0] : basename(root)) || "unknown";
       const services = parseComposeServices(text);
-      for (const service of services) entries.push({ project, service, casaos: parsed, details: parseComposeServiceDetails(text, service) });
+      for (const service of services) {
+        const details = parseComposeServiceDetails(text, service);
+        entries.push({ project, service, casaos: parsed, details: addImplicitComposeNetwork(text, service, project, details) });
+      }
     } catch {
       warnings.push(`Compose metadata is unavailable for ${relative(root, file)}.`);
     }
@@ -306,50 +325,50 @@ function parseComposePorts(field?: ComposeField): DockerPort[] {
   const ports = parseYamlListEntries(field).flatMap((entry) => {
     const values = parseYamlEntryMap(entry);
     if (values.target !== undefined) {
-      const containerPort = parseComposePortNumber(values.target);
-      if (containerPort === null) return [];
-      return [{
+      const containerPorts = parseComposePortRange(values.target);
+      if (!containerPorts.length) return [];
+      const publishedPorts = parseComposePortRange(values.published);
+      return containerPorts.map((containerPort, index) => ({
         containerPort,
         protocol: normalizeComposeProtocol(values.protocol),
         hostIp: parseComposeScalar(values.host_ip),
-        hostPort: parseComposePortNumber(values.published),
-      }];
+        hostPort: publishedPorts[index] ?? publishedPorts[0] ?? null,
+      }));
     }
-    const port = parseComposePort(entry.value);
-    return port ? [port] : [];
+    return parseComposePort(entry.value);
   });
   return uniquePorts(ports);
 }
 
-function parseComposePort(value: string): DockerPort | null {
+function parseComposePort(value: string): DockerPort[] {
   const scalar = stripYamlScalar(value);
   const protocolSeparator = scalar.lastIndexOf("/");
   const mapping = protocolSeparator >= 0 ? scalar.slice(0, protocolSeparator) : scalar;
   const protocol = normalizeComposeProtocol(protocolSeparator >= 0 ? scalar.slice(protocolSeparator + 1) : undefined);
   const bracketedHost = /^\[([^\]]+)\](?::(.*))?$/.exec(mapping);
-  let containerPort: number | null;
-  let hostPort: number | null;
+  let containerPorts: number[];
+  let hostPorts: number[];
   let hostIp: string | null;
   if (bracketedHost) {
     const remainder = bracketedHost[2] ? bracketedHost[2].split(":") : [];
     hostIp = bracketedHost[1];
     if (remainder.length === 1) {
-      containerPort = parseComposePortNumber(remainder[0]);
-      hostPort = null;
+      containerPorts = parseComposePortRange(remainder[0]);
+      hostPorts = [];
     } else if (remainder.length >= 2) {
-      containerPort = parseComposePortNumber(remainder[remainder.length - 1]);
-      hostPort = parseComposePortNumber(remainder[remainder.length - 2]);
+      containerPorts = parseComposePortRange(remainder[remainder.length - 1]);
+      hostPorts = parseComposePortRange(remainder[remainder.length - 2]);
     } else {
-      return null;
+      return [];
     }
   } else {
     const parts = mapping.split(":");
-    containerPort = parseComposePortNumber(parts[parts.length - 1]);
-    hostPort = parts.length > 1 ? parseComposePortNumber(parts[parts.length - 2]) : null;
+    containerPorts = parseComposePortRange(parts[parts.length - 1]);
+    hostPorts = parts.length > 1 ? parseComposePortRange(parts[parts.length - 2]) : [];
     hostIp = parts.length > 2 ? parts.slice(0, -2).join(":") || null : null;
   }
-  if (containerPort === null || (hostPort !== null && !Number.isFinite(hostPort))) return null;
-  return { containerPort, protocol, hostIp, hostPort };
+  if (!containerPorts.length) return [];
+  return containerPorts.map((containerPort, index) => ({ containerPort, protocol, hostIp, hostPort: hostPorts[index] ?? hostPorts[0] ?? null }));
 }
 
 function parseComposeVolumes(field?: ComposeField): DockerVolume[] {
@@ -446,6 +465,49 @@ function parseYamlListEntries(field: ComposeField): ComposeListEntry[] {
   return entries;
 }
 
+function toDockerComposeService(entry: ComposeMetadataEntry): DockerComposeService {
+  return { project: entry.project, service: entry.service, casaos: entry.casaos, details: entry.details };
+}
+
+function addImplicitComposeNetwork(text: string, service: string, project: string, details: DockerServiceDetails) {
+  if (details.networks.length) return details;
+  const block = findComposeServiceBlock(text, service);
+  if (!block) return details;
+  const fields = parseComposeFields(block.lines, block.indent);
+  if (fields.networks || fields.network_mode) return details;
+  return { ...details, networks: [parseComposeDefaultNetworkName(text, project)] };
+}
+
+function parseComposeDefaultNetworkName(text: string, project: string) {
+  const lines = text.split(/\r?\n/);
+  const rootIndent = lines.map((line) => line.trim() && !/^\s*#/.test(line) ? line.search(/\S/) : -1)
+    .find((indent) => indent >= 0) ?? 0;
+  const marker = lines.findIndex((line) => line.search(/\S/) === rootIndent && /^\s*networks:\s*(?:#.*)?$/.test(line));
+  if (marker >= 0) {
+    const markerIndent = lines[marker].search(/\S/);
+    const defaultIndex = lines.slice(marker + 1).findIndex((line) => {
+      const indent = line.search(/\S/);
+      return indent > markerIndent && new RegExp(`^\\s{${markerIndent + 2}}default:\\s*(?:#.*)?$`).test(line);
+    });
+    if (defaultIndex >= 0) {
+      const defaultLineIndex = marker + 1 + defaultIndex;
+      const defaultIndent = lines[defaultLineIndex].search(/\S/);
+      let name: string | undefined;
+      for (const line of lines.slice(defaultLineIndex + 1)) {
+        const indent = line.search(/\S/);
+        if (indent >= 0 && indent <= defaultIndent) break;
+        const match = indent === defaultIndent + 2 ? /^\s*name:\s*(.*?)\s*$/.exec(line) : null;
+        if (match) {
+          name = stripYamlScalar(match[1]);
+          break;
+        }
+      }
+      if (name) return stripYamlScalar(name);
+    }
+  }
+  return `${project}_default`;
+}
+
 function parseYamlEntryMap(entry: ComposeListEntry): Record<string, string> {
   const values: Record<string, string> = {};
   const first = /^([A-Za-z][\w-]*):\s*(.*?)\s*$/.exec(entry.value);
@@ -491,6 +553,17 @@ function parseComposePortNumber(value?: string) {
   if (scalar === null) return null;
   const number = Number(scalar);
   return Number.isInteger(number) && number >= 0 && number <= 65_535 ? number : null;
+}
+
+function parseComposePortRange(value?: string) {
+  const scalar = parseComposeScalar(value);
+  if (scalar === null) return [];
+  const match = /^(\d+)(?:-(\d+))?$/.exec(scalar);
+  if (!match) return [];
+  const start = parseComposePortNumber(match[1]);
+  const end = parseComposePortNumber(match[2] || match[1]);
+  if (start === null || end === null || end < start) return [];
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
 function normalizeComposeProtocol(value?: string): DockerPort["protocol"] {

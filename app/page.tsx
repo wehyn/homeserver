@@ -435,18 +435,28 @@ function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: Mana
 
 function DockerDetails({ app }: { app: ManagedApp }) {
   const details = app.dockerDetails;
-  const image = details?.image || app.containerImage || "Unavailable";
-  const networks = details?.networks?.length ? details.networks.join(", ") : "Unavailable";
-  const publishedPorts = details?.ports?.filter((port) => port.hostPort !== null);
+  const hasDockerLink = Boolean(details || app.source === "docker" || app.dockerProject || app.dockerService || app.containerId || app.containerName || app.containerImage);
+  const image = details?.image || app.containerImage || "Not reported";
+  const networks = details ? (details.networks.length ? details.networks.join(", ") : "No networks reported") : hasDockerLink ? "Awaiting Docker discovery" : "Not linked";
+  const metadataState = details?.source === "compose"
+    ? "Compose configuration · live Docker state is optional"
+    : details
+      ? "Live read-only container metadata"
+      : hasDockerLink
+        ? "No matching container metadata is available"
+        : "Link a Compose service to show container metadata";
+  const empty = hasDockerLink ? "Docker discovery is unavailable" : "No Docker metadata";
   return <section className="docker-details" aria-label="Container metadata">
+    <div className="docker-details-heading"><div><h3>Docker details</h3><p>{metadataState}</p></div>{details && <span className={`docker-source docker-source-${details.source}`}>{details.source === "container" ? "Live" : "Compose"}</span>}</div>
+    {!hasDockerLink && <div className="docker-details-empty"><strong>No Docker or Compose metadata</strong><p>Add a Compose project and service above to connect this application to its read-only service details.</p></div>}
     <div className="docker-metadata-grid">
       <MetadataItem label="Docker image tag" value={image} mono />
       <MetadataItem label="Network" value={networks} />
       {app.containerState && <MetadataItem label="Container status" value={app.containerState} />}
     </div>
-    <DockerMetadataList label="Ports" empty={details ? "No published ports" : "Unavailable"} items={publishedPorts?.map(formatDockerPort)} />
-    <DockerMetadataList label="Volumes" empty="Unavailable" items={details?.volumes?.map(formatDockerVolume)} />
-    <DockerMetadataList label="Environment variables" empty="Unavailable" items={details?.environment?.map((variable) => `${variable.name}=${variable.value}`)} mono />
+    <DockerMetadataList label="Ports" empty={details ? "No declared ports" : empty} items={details ? formatDockerPorts(details.ports) : undefined} />
+    <DockerMetadataList label="Volumes" empty={details ? "No mounted volumes" : empty} items={details?.volumes.map(formatDockerVolume)} />
+    <DockerMetadataList label="Environment variables" empty={details ? "No environment variables reported" : empty} items={details?.environment.map((variable) => `${variable.name}=${variable.value}`)} mono />
   </section>;
 }
 
@@ -458,13 +468,38 @@ function DockerMetadataList({ label, empty, items, mono = false }: { label: stri
   return <div className="docker-metadata-list"><span>{label}</span>{items?.length ? <ul>{items.map((item, index) => <li key={`${label}-${index}`} className={mono ? "docker-mono" : ""}>{item}</li>)}</ul> : <strong>{empty}</strong>}</div>;
 }
 
-function formatDockerPort(port: NonNullable<ManagedApp["dockerDetails"]>["ports"][number]) {
-  const host = port.hostPort === null ? "unpublished" : `${port.hostIp && port.hostIp !== "0.0.0.0" ? `${port.hostIp}:` : ""}${port.hostPort}`;
-  return `${host} → ${port.containerPort}/${port.protocol}`;
+function formatDockerPorts(ports: NonNullable<ManagedApp["dockerDetails"]>["ports"]) {
+  const groups: NonNullable<ManagedApp["dockerDetails"]>["ports"][] = [];
+  for (const port of ports) {
+    const current = groups[groups.length - 1];
+    const previous = current?.[current.length - 1];
+    if (previous && canJoinPortRange(previous, port)) current.push(port);
+    else groups.push([port]);
+  }
+  return groups.map(formatDockerPortRange);
+}
+
+function canJoinPortRange(previous: NonNullable<ManagedApp["dockerDetails"]>["ports"][number], next: NonNullable<ManagedApp["dockerDetails"]>["ports"][number]) {
+  if (previous.protocol !== next.protocol || previous.hostIp !== next.hostIp || next.containerPort !== previous.containerPort + 1) return false;
+  if (previous.hostPort === null || next.hostPort === null) return previous.hostPort === null && next.hostPort === null;
+  return next.hostPort === previous.hostPort + 1;
+}
+
+function formatDockerPortRange(ports: NonNullable<ManagedApp["dockerDetails"]>["ports"]) {
+  const first = ports[0];
+  const last = ports[ports.length - 1];
+  const host = first.hostPort === null
+    ? "container-only"
+    : `${first.hostIp && first.hostIp !== "0.0.0.0" ? `${first.hostIp}:` : ""}${formatPortRange(first.hostPort, last.hostPort ?? first.hostPort)}`;
+  return `${host} → ${formatPortRange(first.containerPort, last.containerPort)}/${first.protocol}`;
+}
+
+function formatPortRange(first: number, last: number) {
+  return first === last ? `${first}` : `${first}–${last}`;
 }
 
 function formatDockerVolume(volume: NonNullable<ManagedApp["dockerDetails"]>["volumes"][number]) {
-  return `${volume.source || "anonymous"} → ${volume.target}${volume.mode ? ` (${volume.mode})` : ""}`;
+  return `${volume.type} · ${volume.source || "anonymous"} → ${volume.target}${volume.mode ? ` (${volume.mode})` : ""}`;
 }
 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", allowInsecureTls: false, status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }

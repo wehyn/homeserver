@@ -114,6 +114,22 @@ test("parses bracketed IPv6 Compose port bindings", () => {
 ]);
 });
 
+test("expands Compose port ranges into inspect-compatible entries", () => {
+  const compose = `services:
+  app:
+    ports:
+      - "8000-8002:80-82"
+      - "9000-9001"
+`;
+  assert.deepEqual(parseComposeServiceDetails(compose, "app").ports, [
+    { containerPort: 80, protocol: "tcp", hostIp: null, hostPort: 8000 },
+    { containerPort: 81, protocol: "tcp", hostIp: null, hostPort: 8001 },
+    { containerPort: 82, protocol: "tcp", hostIp: null, hostPort: 8002 },
+    { containerPort: 9000, protocol: "tcp", hostIp: null, hostPort: null },
+    { containerPort: 9001, protocol: "tcp", hostIp: null, hostPort: null },
+  ]);
+});
+
 test("handles inline Compose collections, anonymous volumes, and nested names", () => {
   const compose = `name: actual-project
 services:
@@ -168,7 +184,40 @@ test("indexes CasaOS metadata beneath the configured services root", async () =>
       project: "demo",
       service: "demo",
       casaos: { scheme: "https", hostname: "demo.local", portMap: "8443", index: "/" },
-      details: { image: "demo:latest", networks: [], ports: [], volumes: [], environment: [] },
+      details: { image: "demo:latest", networks: ["demo_default"], ports: [], volumes: [], environment: [] },
+    }]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("returns Compose metadata when live Docker discovery is disabled", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nimbus-services-"));
+  try {
+    await writeFile(join(root, "docker-compose.yml"), `services:
+  app:
+    image: demo:latest
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+`);
+    const snapshot = await collectDockerSnapshot({ socketPath: "", servicesRoot: root });
+    const project = root.split("/").pop() || "unknown";
+    assert.equal(snapshot.available, false);
+    assert.equal(snapshot.status, "unavailable");
+    assert.deepEqual(snapshot.composeServices?.map((service) => ({
+      project: service.project,
+      service: service.service,
+      networks: service.details.networks,
+      ports: service.details.ports,
+      volumes: service.details.volumes,
+    })), [{
+      project,
+      service: "app",
+      networks: [`${project}_default`],
+      ports: [{ containerPort: 80, protocol: "tcp", hostIp: null, hostPort: 8080 }],
+      volumes: [{ type: "bind", source: "./data", target: "/data", mode: null }],
     }]);
   } finally {
     await rm(root, { recursive: true, force: true });
