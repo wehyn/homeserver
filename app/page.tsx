@@ -438,11 +438,11 @@ function DockerDetails({ app }: { app: ManagedApp }) {
   const image = details?.image || app.containerImage || "Unavailable";
   const networks = details?.networks?.length ? details.networks.join(", ") : "Unavailable";
   const publishedPorts = details?.ports?.filter((port) => port.hostPort !== null);
-  return <section className="docker-details" aria-labelledby="docker-details-title">
-    <div className="panel-section-heading"><div><h3 id="docker-details-title">Docker details</h3><p>Read-only metadata from the matching Docker container and Compose service.</p></div>{app.containerState && <span className={`container-status container-${app.containerState}`}><span className="container-status-dot" />{app.containerState}</span>}</div>
+  return <section className="docker-details" aria-label="Container metadata">
     <div className="docker-metadata-grid">
       <MetadataItem label="Docker image tag" value={image} mono />
       <MetadataItem label="Network" value={networks} />
+      {app.containerState && <MetadataItem label="Container status" value={app.containerState} />}
     </div>
     <DockerMetadataList label="Ports" empty={details ? "No published ports" : "Unavailable"} items={publishedPorts?.map(formatDockerPort)} />
     <DockerMetadataList label="Volumes" empty="Unavailable" items={details?.volumes?.map(formatDockerVolume)} />

@@ -123,23 +123,29 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
 .container-exited .container-status-dot, .container-dead .container-status-dot { background: #f4778b; }
 .form-columns-equal { grid-template-columns: 1fr 1fr; }
 .form-help { color: var(--muted-2); font-size: 9px; line-height: 1.5; margin: -3px 0 15px; }
-.docker-details { margin: 24px 0 4px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.025); }
-.docker-details .panel-section-heading { align-items: flex-start; margin-bottom: 15px; }
-.docker-details .panel-section-heading p { max-width: 390px; line-height: 1.45; }
+.docker-details { margin: 25px 0 4px; }
 .docker-metadata-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.docker-metadata-item, .docker-metadata-list { min-width: 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.025); }
-.docker-metadata-item > span, .docker-metadata-list > span { display: block; color: var(--muted-2); font: 500 9px 'DM Mono', monospace; letter-spacing: .35px; text-transform: uppercase; }
-.docker-metadata-item strong, .docker-metadata-list > strong { display: block; margin-top: 7px; color: var(--text); font-size: 11px; overflow-wrap: anywhere; }
-.docker-metadata-list { margin-top: 10px; }
+.docker-metadata-item, .docker-metadata-list { min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.docker-metadata-item > span, .docker-metadata-list > span { display: block; color: var(--muted); font: 600 11px 'Manrope', sans-serif; letter-spacing: 0; text-transform: none; }
+.docker-metadata-item strong, .docker-metadata-list > strong { display: block; margin-top: 7px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,.045); color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+.docker-metadata-list { margin-top: 15px; }
 .docker-metadata-list ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
-.docker-metadata-list li { padding: 7px 8px; border-radius: 6px; background: rgba(255,255,255,.04); color: var(--text); font-size: 10px; overflow-wrap: anywhere; }
-.docker-mono { font: 500 10px/1.5 'DM Mono', monospace !important; letter-spacing: 0; }
+.docker-metadata-list li { display: block; margin: 0; padding: 10px 11px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,.045); color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
+.docker-metadata-list li + li { margin-top: 0; }
+.docker-mono { font: 500 11px/1.5 'DM Mono', monospace !important; letter-spacing: 0; }
+
+.app-form .back-button { font-size: 11px; }
+.app-form .form-title h3 { font-size: 18px; }
+.app-form label { font-size: 11px; }
+.app-form input, .app-form select { font-size: 12px; }
+.app-form .optional { font-size: 9px; }
+.app-form .toggle-row small { font-size: 10px; }
+.app-form .delete-button { font-size: 11px; }
 
 @media (max-width: 600px) {
   .panel-backdrop { padding: 8px; }
   .settings-panel { max-height: calc(100vh - 16px); padding: 22px 18px; border-radius: 14px; }
   .docker-metadata-grid { grid-template-columns: 1fr; }
-  .docker-details { padding: 14px; }
 }
 
 /* Application cards: square service tiles focused on app identity. */
