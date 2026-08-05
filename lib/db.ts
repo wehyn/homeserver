@@ -148,12 +148,22 @@ export function findApp(id: string) {
 
 export function saveApp(app: ManagedApp) {
   const database = getDatabase();
-  const existing = database.prepare("SELECT id FROM apps WHERE id = ?").get(app.id);
+  const existing = database.prepare("SELECT id, status, docker_project, docker_service FROM apps WHERE id = ?").get(app.id) as {
+    id?: string;
+    status?: AppStatus;
+    docker_project?: string | null;
+    docker_service?: string | null;
+  } | undefined;
+  let persistedApp = existing ? { ...app, status: existing.status || app.status } : app;
+  if (existing && (normalizeLinkValue(existing.docker_project) !== normalizeLinkValue(app.dockerProject)
+    || normalizeLinkValue(existing.docker_service) !== normalizeLinkValue(app.dockerService))) {
+    persistedApp = clearDockerMetadata(persistedApp);
+  }
   database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
     VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)
-    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex`).run(toRow(app));
-  recordActivity(existing ? "app-updated" : "app-created", app.id, app.name);
-  return app;
+    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex`).run(toRow(persistedApp));
+  recordActivity(existing ? "app-updated" : "app-created", persistedApp.id, persistedApp.name);
+  return persistedApp;
 }
 
 export function reconcileDockerApps(containers: DockerContainer[], options: { preserveUnmatched?: boolean } = {}) {
@@ -200,13 +210,15 @@ export function updateAppStatus(id: string, status: AppStatus) {
   const database = getDatabase();
   const app = database.prepare("SELECT name, status FROM apps WHERE id = ?").get(id) as { name?: string; status?: AppStatus } | undefined;
   if (!app?.name || app.status === status) return;
-  database.prepare("UPDATE apps SET status = ? WHERE id = ?").run(status, id);
+  const result = database.prepare("UPDATE apps SET status = ? WHERE id = ? AND status IS NOT ?").run(status, id, status);
+  if (Number(result.changes) !== 1) return;
   recordActivity("status-changed", id, app.name, status);
 }
 
 export function listActivities(limit = 5): ActivityEvent[] {
+  const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : 5;
   const rows = getDatabase().prepare(`SELECT id, type, app_id, app_name, status, created_at
-    FROM activities ORDER BY created_at DESC, id DESC LIMIT ?`).all(Math.max(1, Math.floor(limit))) as Record<string, unknown>[];
+    FROM activities ORDER BY created_at DESC, id DESC LIMIT ?`).all(normalizedLimit) as Record<string, unknown>[];
   return rows.map((row) => ({
     id: Number(row.id),
     type: row.type as ActivityType,
@@ -224,6 +236,27 @@ function recordActivity(type: ActivityType, appId: string, appName: string, stat
 
 function addColumnIfMissing(database: DatabaseSync, columns: { name?: unknown }[], name: string, definition: string) {
   if (!columns.some((column) => column.name === name)) database.exec(`ALTER TABLE apps ADD COLUMN ${name} ${definition}`);
+}
+
+function clearDockerMetadata(app: ManagedApp): ManagedApp {
+  return {
+    ...app,
+    containerId: undefined,
+    containerName: undefined,
+    containerImage: undefined,
+    containerState: undefined,
+    containerHealth: undefined,
+    containerStartedAt: undefined,
+    containerObservedAt: undefined,
+    casaosScheme: undefined,
+    casaosHostname: undefined,
+    casaosPortMap: undefined,
+    casaosIndex: undefined,
+  };
+}
+
+function normalizeLinkValue(value: string | null | undefined) {
+  return value?.trim() || "";
 }
 
 function findContainerForApp(app: ManagedApp, containers: DockerContainer[], claimed: Set<string>) {

@@ -33,21 +33,29 @@ export async function GET() {
 function isMemorySnapshot(value: unknown): value is MemorySnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Partial<MemorySnapshot>;
-  return typeof snapshot.totalBytes === "number"
-    && typeof snapshot.usedBytes === "number"
-    && typeof snapshot.availableBytes === "number"
-    && typeof snapshot.usedPercent === "number"
+  return isFiniteNumber(snapshot.totalBytes) && snapshot.totalBytes > 0
+    && isFiniteNumber(snapshot.usedBytes) && snapshot.usedBytes >= 0
+    && isFiniteNumber(snapshot.availableBytes) && snapshot.availableBytes >= 0
+    && isFiniteNumber(snapshot.usedPercent) && snapshot.usedPercent >= 0 && snapshot.usedPercent <= 100
     && Array.isArray(snapshot.processes)
     && typeof snapshot.partial === "boolean"
-    && typeof snapshot.omittedCount === "number"
+    && isInteger(snapshot.omittedCount) && snapshot.omittedCount >= 0
     && Array.isArray(snapshot.warnings)
-    && typeof snapshot.updatedAt === "string"
+    && typeof snapshot.updatedAt === "string" && snapshot.updatedAt.length > 0
     && snapshot.processes.every((process) => Boolean(process)
-      && typeof process.pid === "number"
+      && isInteger(process.pid) && process.pid >= 0
       && typeof process.name === "string"
       && typeof process.command === "string"
       && typeof process.user === "string"
-      && typeof process.rssBytes === "number"
-      && typeof process.memoryPercent === "number")
+      && isFiniteNumber(process.rssBytes) && process.rssBytes >= 0
+      && isFiniteNumber(process.memoryPercent) && process.memoryPercent >= 0 && process.memoryPercent <= 100)
     && snapshot.warnings.every((warning) => typeof warning === "string");
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isInteger(value: unknown): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value);
 }

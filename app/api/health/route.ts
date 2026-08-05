@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   try {
     const target = new URL(url);
-    if (!["http:", "https:"].includes(target.protocol)) throw new Error("Unsupported protocol");
+    if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) throw new Error("Unsupported target");
     const allowInsecureTls = app.allowInsecureTls === true;
     const started = Date.now();
     const response = allowInsecureTls && target.protocol === "https:"
@@ -38,7 +38,7 @@ async function fetchWithTimeout(target: URL) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4500);
   try {
-    const response = await fetch(target, { method: "GET", cache: "no-store", signal: controller.signal });
+    const response = await fetch(target, { method: "GET", cache: "no-store", redirect: "manual", signal: controller.signal });
     return { statusCode: response.status };
   } finally {
     clearTimeout(timeout);

@@ -33,25 +33,33 @@ export async function GET() {
 function isProcessorSnapshot(value: unknown): value is ProcessorSnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Partial<ProcessorSnapshot>;
-  return typeof snapshot.cpuPercent === "number"
-    && typeof snapshot.cpuCores === "number"
+  return isFiniteNumber(snapshot.cpuPercent) && snapshot.cpuPercent >= 0 && snapshot.cpuPercent <= 100
+    && isInteger(snapshot.cpuCores) && snapshot.cpuCores > 0
     && Boolean(snapshot.loadAverage)
-    && typeof snapshot.loadAverage?.one === "number"
-    && typeof snapshot.loadAverage?.five === "number"
-    && typeof snapshot.loadAverage?.fifteen === "number"
+    && isFiniteNumber(snapshot.loadAverage?.one) && snapshot.loadAverage.one >= 0
+    && isFiniteNumber(snapshot.loadAverage?.five) && snapshot.loadAverage.five >= 0
+    && isFiniteNumber(snapshot.loadAverage?.fifteen) && snapshot.loadAverage.fifteen >= 0
     && Array.isArray(snapshot.processes)
     && typeof snapshot.sampling === "boolean"
     && typeof snapshot.partial === "boolean"
-    && typeof snapshot.omittedCount === "number"
+    && isInteger(snapshot.omittedCount) && snapshot.omittedCount >= 0
     && Array.isArray(snapshot.warnings)
-    && typeof snapshot.updatedAt === "string"
+    && typeof snapshot.updatedAt === "string" && snapshot.updatedAt.length > 0
     && snapshot.processes.every((process) => Boolean(process)
-      && typeof process.pid === "number"
+      && isInteger(process.pid) && process.pid >= 0
       && typeof process.name === "string"
       && typeof process.command === "string"
       && typeof process.user === "string"
-      && typeof process.rssBytes === "number"
-      && typeof process.memoryPercent === "number"
-      && typeof process.cpuPercent === "number")
+      && isFiniteNumber(process.rssBytes) && process.rssBytes >= 0
+      && isFiniteNumber(process.memoryPercent) && process.memoryPercent >= 0 && process.memoryPercent <= 100
+      && isFiniteNumber(process.cpuPercent) && process.cpuPercent >= 0 && process.cpuPercent <= 100)
     && snapshot.warnings.every((warning) => typeof warning === "string");
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isInteger(value: unknown): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value);
 }

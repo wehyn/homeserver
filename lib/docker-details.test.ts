@@ -71,3 +71,11 @@ test("honors an explicit project and service even when the app name differs", ()
   assert.equal(result?.source, "compose");
   assert.equal(result?.image, composeService.details.image);
 });
+
+test("uses the protocol default port when matching an application URL", () => {
+  const result = resolveDockerDetails({ ...app, id: "photos", name: "Photos", url: "http://server" }, [], [{
+    ...composeService,
+    details: { ...composeService.details, ports: [{ containerPort: 80, protocol: "tcp", hostIp: null, hostPort: 80 }] },
+  }]);
+  assert.equal(result?.source, "compose");
+});

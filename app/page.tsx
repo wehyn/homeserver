@@ -57,9 +57,9 @@ function getKnownIconUrl(app: ManagedApp) {
 function AppIcon({ app, large = false, proxy = true }: { app: ManagedApp; large?: boolean; proxy?: boolean }) {
   const Icon = iconPalette[app.id] || LayoutGrid;
   const customIcon = app.icon?.trim() || "";
-  const favicon = customIcon ? [] : getFaviconUrls(app.url, proxy ? app.id : undefined);
-  const knownIcon = customIcon ? "" : getKnownIconUrl(app);
-  const iconSources = customIcon ? [customIcon] : [knownIcon, ...favicon].filter(Boolean);
+  const favicon = getFaviconUrls(app.url, proxy ? app.id : undefined);
+  const knownIcon = getKnownIconUrl(app);
+  const iconSources = [customIcon, knownIcon, ...favicon].filter(Boolean);
   const sourceKey = iconSources.join("\u0000");
   const [sourceIndex, setSourceIndex] = useState(0);
   useEffect(() => setSourceIndex(0), [sourceKey]);
@@ -100,6 +100,9 @@ export default function Home() {
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentDate, setCurrentDate] = useState("");
   const activeHealthRefreshesRef = useRef(0);
+  const healthRefreshVersionRef = useRef(0);
+  const healthRequestRef = useRef<AbortController | null>(null);
+  const overviewRequestRef = useRef<AbortController | null>(null);
   const savedNoticeTimeoutRef = useRef<number | null>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
   const mobileMenuRef = useRef<HTMLButtonElement>(null);
@@ -149,6 +152,8 @@ export default function Home() {
 
   useEffect(() => () => {
     if (savedNoticeTimeoutRef.current !== null) window.clearTimeout(savedNoticeTimeoutRef.current);
+    healthRequestRef.current?.abort();
+    overviewRequestRef.current?.abort();
   }, []);
 
   const loadApps = useCallback(async () => {
@@ -187,17 +192,22 @@ export default function Home() {
   }, [refreshActivities]);
 
   const refreshOverview = useCallback(async () => {
+    overviewRequestRef.current?.abort();
+    const controller = new AbortController();
+    overviewRequestRef.current = controller;
     setOverviewRefreshing(true);
     try {
-      const response = await fetch("/api/overview", { cache: "no-store" }).catch(() => null);
+      const response = await fetch("/api/overview", { cache: "no-store", signal: controller.signal }).catch(() => null);
+      if (controller.signal.aborted) return;
       if (!response?.ok) throw new Error("Unable to load system overview.");
       const data = await response.json() as ServerOverview;
       setOverview(data);
       setOverviewError("");
     } catch (caught) {
-      setOverviewError(caught instanceof Error ? caught.message : "Unable to load system overview.");
+      if (!controller.signal.aborted) setOverviewError(caught instanceof Error ? caught.message : "Unable to load system overview.");
     } finally {
-      setOverviewRefreshing(false);
+      if (overviewRequestRef.current === controller) overviewRequestRef.current = null;
+      if (!controller.signal.aborted) setOverviewRefreshing(false);
     }
   }, []);
 
@@ -208,16 +218,25 @@ export default function Home() {
   }, [refreshOverview]);
 
   const refreshHealth = useCallback(async () => {
+    healthRequestRef.current?.abort();
+    const refreshVersion = healthRefreshVersionRef.current + 1;
+    healthRefreshVersionRef.current = refreshVersion;
     const checkedApps = appsRef.current.filter((app) => app.healthUrl || app.url);
-    if (!checkedApps.length) return;
+    if (!checkedApps.length) {
+      setRefreshing(false);
+      return;
+    }
+    const controller = new AbortController();
+    healthRequestRef.current = controller;
     activeHealthRefreshesRef.current += 1;
     setRefreshing(true);
     try {
       const results = await Promise.all(checkedApps.map(async (app) => {
-        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}`).catch(() => null);
+        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}`, { signal: controller.signal }).catch(() => null);
         const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
-        return { id: app.id, status: result.status as AppStatus };
+        return { id: app.id, status: isAppStatus(result.status) ? result.status : "unknown" as AppStatus };
       }));
+      if (controller.signal.aborted || refreshVersion !== healthRefreshVersionRef.current) return;
       setApps((current) => current.map((app) => {
         const result = results.find((item) => item.id === app.id);
         return result ? { ...app, status: result.status } : app;
@@ -225,7 +244,9 @@ export default function Home() {
       void refreshActivities();
     } finally {
       activeHealthRefreshesRef.current -= 1;
-      setRefreshing(activeHealthRefreshesRef.current > 0);
+      const isCurrentRequest = healthRequestRef.current === controller;
+      if (isCurrentRequest) healthRequestRef.current = null;
+      if (!controller.signal.aborted || !isCurrentRequest) setRefreshing(activeHealthRefreshesRef.current > 0);
     }
   }, [refreshActivities]);
 
@@ -507,3 +528,4 @@ function BellIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fil
 function formatPercent(value: number) { return `${value.toFixed(2)}%`; }
 function formatTemperature(value: number | null) { return value === null ? "Unavailable" : `${value}°C`; }
 function formatPower(value: number | null) { return value === null ? "Unavailable" : `${value.toFixed(2)} W`; }
+function isAppStatus(value: unknown): value is AppStatus { return value === "online" || value === "degraded" || value === "offline" || value === "unknown"; }

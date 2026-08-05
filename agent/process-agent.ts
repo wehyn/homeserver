@@ -69,7 +69,7 @@ const passwdPath = process.env.PASSWD_PATH || "/host/etc/passwd";
 const port = Number(process.env.AGENT_PORT || 8787);
 const sharedToken = process.env.MEMORY_AGENT_TOKEN || "";
 const dockerToken = process.env.DOCKER_AGENT_TOKEN || sharedToken;
-let previousCpuSample: CpuSample | undefined;
+const previousCpuSamples = new Map<string, CpuSample>();
 const hardwareSampler = new HardwareSampler();
 
 export async function collectSnapshot(
@@ -119,20 +119,18 @@ export async function collectProcessorSnapshot(
   const currentPasswdPath = roots.passwdPath || passwdPath;
   const firstSample = await readCpuSample(currentProcRoot);
   const memory = await readMemory(currentProcRoot);
-  const baseline = previousCpuSample;
+  const baseline = previousCpuSamples.get(currentProcRoot);
   let currentSample = firstSample;
   let sampling = !baseline;
-  const warnings = [...firstSample.warnings];
-  let omittedCount = firstSample.omittedCount;
 
   if (!baseline) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     currentSample = await readCpuSample(currentProcRoot);
-    warnings.push(...currentSample.warnings);
-    omittedCount += currentSample.omittedCount;
   }
 
-  previousCpuSample = currentSample;
+  previousCpuSamples.set(currentProcRoot, currentSample);
+  const warnings = [...currentSample.warnings];
+  let omittedCount = currentSample.omittedCount;
   const totalDelta = currentSample.totalTicks - (baseline?.totalTicks || firstSample.totalTicks);
   const idleDelta = currentSample.idleTicks - (baseline?.idleTicks || firstSample.idleTicks);
   const cpuPercent = calculateCpuPercent(totalDelta, idleDelta);
@@ -261,11 +259,15 @@ function parseProcessTicks(stat: string) {
 }
 
 export function calculateCpuPercent(totalDelta: number, idleDelta: number) {
-  return totalDelta > 0 ? toPercent(((totalDelta - idleDelta) / totalDelta) * 100) : 0;
+  return Number.isFinite(totalDelta) && Number.isFinite(idleDelta) && totalDelta > 0
+    ? toPercent(((totalDelta - idleDelta) / totalDelta) * 100)
+    : 0;
 }
 
 export function calculateProcessCpuPercent(processDelta: number, totalDelta: number) {
-  return totalDelta > 0 ? toPercent((Math.max(0, processDelta) / totalDelta) * 100) : 0;
+  return Number.isFinite(processDelta) && Number.isFinite(totalDelta) && totalDelta > 0
+    ? toPercent((Math.max(0, processDelta) / totalDelta) * 100)
+    : 0;
 }
 
 async function readMemory(currentProcRoot: string) {
@@ -305,8 +307,10 @@ async function readUsers(currentPasswdPath: string, warnings: string[]) {
 async function readProcess(currentProcRoot: string, pid: number, users: Map<number, string>, totalBytes: number, cpuPercent?: number): Promise<ProcessRecord | CpuProcessRecord> {
   const status = await readFile(`${currentProcRoot}/${pid}/status`, "utf8");
   const name = readStatusValue(status, "Name") || `PID ${pid}`;
-  const uid = Number((readStatusValue(status, "Uid") || "").split(/\s+/)[0]);
-  const rssKb = Number((readStatusValue(status, "VmRSS") || "0").split(/\s+/)[0]);
+  const parsedUid = Number((readStatusValue(status, "Uid") || "").split(/\s+/)[0]);
+  const uid = Number.isInteger(parsedUid) && parsedUid >= 0 ? parsedUid : -1;
+  const parsedRssKb = Number((readStatusValue(status, "VmRSS") || "0").split(/\s+/)[0]);
+  const rssKb = Number.isFinite(parsedRssKb) && parsedRssKb >= 0 ? parsedRssKb : 0;
   const command = await readFile(`${currentProcRoot}/${pid}/cmdline`, "utf8").catch(() => "");
   const details: ProcessDetails = { name, uid, rssBytes: Math.max(0, rssKb) * 1024, command };
   return {
@@ -326,7 +330,8 @@ function readStatusValue(status: string, key: string) {
 }
 
 function toPercent(value: number) {
-  return Number(Math.max(0, value).toFixed(2));
+  const bounded = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 0;
+  return Number(bounded.toFixed(2));
 }
 
 function isAuthorized(request: IncomingMessage, pathname: string) {

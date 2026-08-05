@@ -1,5 +1,5 @@
-import { readFile, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, readlink, readdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 export type HardwareSnapshot = {
   temperatureC: number | null;
@@ -78,21 +78,25 @@ export async function readCpuTemperature(sysRoot = "/sys"): Promise<number | nul
     if (temperature !== null) return temperature;
   }
 
-  return parseTemperature(await readText(join(sysRoot, "class", "hwmon", "hwmon0", "temp1_input")));
+  return readHwmonTemperature(sysRoot);
 }
 
 export async function readIntelPackageEnergy(sysRoot = "/sys"): Promise<number | null> {
-  const value = await readText(join(
-    sysRoot,
-    "class",
-    "powercap",
-    "intel-rapl",
-    "intel-rapl:0",
-    "energy_uj",
-  ));
-  if (value === undefined) return null;
-  const microjoules = Number(value.trim());
-  return Number.isFinite(microjoules) && microjoules >= 0 ? microjoules : null;
+  const powercapRoot = join(sysRoot, "class", "powercap");
+  const raplRoot = await resolveSysfsEntry(sysRoot, powercapRoot, "intel-rapl");
+  const entries = await readdir(raplRoot, { withFileTypes: true }).catch(() => []);
+  const domains = entries
+    .filter((entry) => (entry.isDirectory() || entry.isSymbolicLink()) && /^intel-rapl:\d+$/.test(entry.name))
+    .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
+
+  for (const domain of domains) {
+    const value = await readText(join(await resolveSysfsEntry(sysRoot, raplRoot, domain.name), "energy_uj"));
+    const microjoules = parseEnergy(value);
+    if (microjoules !== null) return microjoules;
+  }
+
+  const fallback = await readText(join(raplRoot, "intel-rapl:0", "energy_uj"));
+  return parseEnergy(fallback);
 }
 
 export function calculatePower(
@@ -112,6 +116,58 @@ function parseTemperature(value: string | undefined): number | null {
   const raw = Number(value.trim());
   if (!Number.isFinite(raw)) return null;
   return Math.round(raw > 1_000 ? raw / 1_000 : raw);
+}
+
+async function readHwmonTemperature(sysRoot: string): Promise<number | null> {
+  const hwmonRoot = join(sysRoot, "class", "hwmon");
+  const entries = await readdir(hwmonRoot, { withFileTypes: true }).catch(() => []);
+  const sensors = entries
+    .filter((entry) => (entry.isDirectory() || entry.isSymbolicLink()) && /^hwmon\d+$/.test(entry.name))
+    .sort((left, right) => Number(left.name.slice(5)) - Number(right.name.slice(5)));
+  let fallback: number | null = null;
+
+  for (const sensor of sensors) {
+    const sensorPath = await resolveSysfsEntry(sysRoot, hwmonRoot, sensor.name);
+    const sensorName = (await readText(join(sensorPath, "name")))?.trim() || "";
+    const files = await readdir(sensorPath, { withFileTypes: true }).catch(() => []);
+    const inputs = files
+      .filter((entry) => entry.isFile() && /^temp\d+_input$/.test(entry.name))
+      .sort((left, right) => left.name.localeCompare(right.name, undefined, { numeric: true }));
+
+    for (const input of inputs) {
+      const temperature = parseTemperature(await readText(join(sensorPath, input.name)));
+      if (temperature === null) continue;
+      const labelName = input.name.replace(/_input$/, "_label");
+      const label = (await readText(join(sensorPath, labelName)))?.trim() || "";
+      if (isCpuSensor(`${sensorName} ${label}`)) return temperature;
+      fallback ??= temperature;
+    }
+  }
+
+  return fallback;
+}
+
+function isCpuSensor(value: string) {
+  return /(?:x86_pkg_temp|coretemp|k10temp|zenpower|cpu(?:_thermal)?|package\s*id|soc)/i.test(value);
+}
+
+async function resolveSysfsEntry(sysRoot: string, parent: string, name: string) {
+  const entryPath = join(parent, name);
+  const link = await readTextLink(entryPath);
+  if (!link) return entryPath;
+  if (link.startsWith("/sys/")) return join(sysRoot, link.slice("/sys/".length));
+  if (link.startsWith("/")) return join(sysRoot, link.slice(1));
+  return resolve(parent, link);
+}
+
+async function readTextLink(path: string) {
+  return readlink(path, "utf8").catch(() => undefined);
+}
+
+function parseEnergy(value: string | undefined) {
+  if (value === undefined) return null;
+  const microjoules = Number(value.trim());
+  return Number.isFinite(microjoules) && microjoules >= 0 ? microjoules : null;
 }
 
 async function readText(path: string): Promise<string | undefined> {

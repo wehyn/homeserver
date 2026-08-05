@@ -50,11 +50,14 @@ export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}
   }
 
   const warnings = [...metadata.warnings];
+  const liveWarnings: string[] = [];
   const containers: DockerContainer[] = [];
   for (const summary of summaries) {
     const id = readString(asRecord(summary)?.Id);
     if (!id) {
-      warnings.push("Docker returned a container without an id; it was omitted.");
+      const warning = "Docker returned a container without an id; it was omitted.";
+      warnings.push(warning);
+      liveWarnings.push(warning);
       continue;
     }
 
@@ -62,21 +65,27 @@ export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}
     try {
       inspect = await requestJson(`/containers/${encodeURIComponent(id)}/json`);
     } catch {
-      warnings.push(`Metadata is unavailable for Docker container ${id.slice(0, 12)}.`);
+      const warning = `Metadata is unavailable for Docker container ${id.slice(0, 12)}.`;
+      warnings.push(warning);
+      liveWarnings.push(warning);
     }
 
     const inspectState = asRecord(asRecord(inspect)?.State);
     const state = normalizeDockerState(readString(inspectState?.Status) || readString(asRecord(summary)?.State));
     const container = normalizeDockerContainer(summary, inspect, metadata.entries, state);
     if (container) containers.push(container);
-    else warnings.push(`Docker container ${id.slice(0, 12)} could not be normalized; it was omitted.`);
+    else {
+      const warning = `Docker container ${id.slice(0, 12)} could not be normalized; it was omitted.`;
+      warnings.push(warning);
+      liveWarnings.push(warning);
+    }
   }
 
   const uniqueWarnings = [...new Set(warnings)].sort();
   return {
     schemaVersion: 1,
     available: true,
-    status: uniqueWarnings.length ? "partial" : "available",
+    status: liveWarnings.length ? "partial" : "available",
     source: "read-only-agent",
     servicesRoot: servicesRoot || null,
     containers: containers.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)),
@@ -133,9 +142,12 @@ export function normalizeDockerContainer(
   const project = labels["com.docker.compose.project"] || null;
   const service = labels["com.docker.compose.service"] || null;
   const state = normalizeDockerState(readString(stateRecord?.Status) || readString(summaryRecord?.State) || fallbackState || null);
-  const composeMetadata = metadata.find((entry) => entry.project === project && (!service || entry.service === service));
+  const composeMetadata = project && service
+    ? metadata.find((entry) => entry.project === project && entry.service === service)
+    : undefined;
   const composeDetails = composeMetadata?.details;
-  const inspectedPorts = normalizeDockerPorts(summaryRecord?.Ports, asRecord(asRecord(inspectRecord?.NetworkSettings)?.Ports));
+  const summaryPorts = normalizeDockerPorts(summaryRecord?.Ports);
+  const inspectedPorts = normalizeDockerPorts(asRecord(asRecord(inspectRecord?.NetworkSettings)?.Ports));
   const inspectedNetworks = normalizeDockerNetworks(asRecord(asRecord(inspectRecord?.NetworkSettings)?.Networks));
   const inspectedVolumes = normalizeDockerVolumes(inspectRecord?.Mounts);
   const inspectedEnvironment = normalizeDockerEnvironment(config?.Env);
@@ -150,7 +162,7 @@ export function normalizeDockerContainer(
     statusText: readString(summaryRecord?.Status),
     health: normalizeDockerHealth(stateRecord?.Health, Boolean(stateRecord)),
     casaos: composeMetadata?.casaos || null,
-    ports: inspectedPorts.length ? inspectedPorts : composeDetails?.ports || [],
+    ports: inspectedPorts.length ? inspectedPorts : composeDetails?.ports?.length ? composeDetails.ports : summaryPorts,
     networks: inspectedNetworks.length ? inspectedNetworks : composeDetails?.networks || [],
     volumes: inspectedVolumes.length ? inspectedVolumes : composeDetails?.volumes || [],
     environment: inspectedEnvironment.length ? inspectedEnvironment : composeDetails?.environment || [],
