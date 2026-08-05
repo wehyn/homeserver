@@ -145,9 +145,17 @@ export default function Home() {
   }, [sidebarOpen]);
 
   useEffect(() => {
-    const updateDate = () => setCurrentDate(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date()));
+    const updateDate = () => setCurrentDate(new Intl.DateTimeFormat("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(new Date()));
     updateDate();
-    const interval = window.setInterval(updateDate, 60_000);
+    const interval = window.setInterval(updateDate, 1_000);
     return () => window.clearInterval(interval);
   }, []);
 
