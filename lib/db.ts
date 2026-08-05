@@ -3,6 +3,7 @@ import "server-only";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import { toDatabaseRow } from "./db-row";
 import { seedApps } from "./seed";
 import type { DockerContainer, DockerContainerState, DockerHealthState } from "./docker-discovery";
 import type { ActivityEvent, ActivityType, AppStatus, ManagedApp } from "./types";
@@ -80,7 +81,7 @@ function getDatabase() {
         VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)`);
       database.exec("BEGIN");
       try {
-        seedApps.forEach((app) => insert.run(toRow(app)));
+        seedApps.forEach((app) => insert.run(toDatabaseRow(app)));
         database.exec("COMMIT");
       } catch (error) {
         database.exec("ROLLBACK");
@@ -89,30 +90,6 @@ function getDatabase() {
     }
   }
   return database;
-}
-
-function toRow(app: ManagedApp) {
-  const { dockerDetails: _dockerDetails, ...persistedApp } = app;
-  return {
-    ...persistedApp,
-    healthUrl: persistedApp.healthUrl ?? null,
-    allowInsecureTls: persistedApp.allowInsecureTls ? 1 : 0,
-    isFavorite: persistedApp.isFavorite ? 1 : 0,
-    isVisible: persistedApp.isVisible ? 1 : 0,
-    dockerProject: persistedApp.dockerProject ?? null,
-    dockerService: persistedApp.dockerService ?? null,
-    containerId: persistedApp.containerId ?? null,
-    containerName: persistedApp.containerName ?? null,
-    containerImage: persistedApp.containerImage ?? null,
-    containerState: persistedApp.containerState ?? "unknown",
-    containerHealth: persistedApp.containerHealth ?? "unknown",
-    containerStartedAt: persistedApp.containerStartedAt ?? null,
-    containerObservedAt: persistedApp.containerObservedAt ?? null,
-    casaosScheme: persistedApp.casaosScheme ?? null,
-    casaosHostname: persistedApp.casaosHostname ?? null,
-    casaosPortMap: persistedApp.casaosPortMap ?? null,
-    casaosIndex: persistedApp.casaosIndex ?? null,
-  };
 }
 
 function fromRow(row: Record<string, unknown>): ManagedApp {
@@ -161,7 +138,7 @@ export function saveApp(app: ManagedApp) {
   }
   database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
     VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)
-    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex`).run(toRow(persistedApp));
+    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex`).run(toDatabaseRow(persistedApp));
   recordActivity(existing ? "app-updated" : "app-created", persistedApp.id, persistedApp.name);
   return persistedApp;
 }

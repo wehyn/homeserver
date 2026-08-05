@@ -10,6 +10,7 @@ import {
   Thermometer, Trash2, TriangleAlert, X, Zap,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
+import { resolveAppLaunchUrl } from "@/lib/app-url";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 import { ThemeToggle } from "@/app/theme-toggle";
 
@@ -346,9 +347,15 @@ export default function Home() {
 }
 
 function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
+  const [launchUrl, setLaunchUrl] = useState(app.url);
+
+  useEffect(() => {
+    setLaunchUrl(resolveAppLaunchUrl(app, window.location.hostname));
+  }, [app]);
+
   return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}>
     <button type="button" className="card-menu" onClick={onEdit} aria-label={`Open details for ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button>
-    <a className="app-link" href={app.url} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div></div></a>
+    <a className="app-link" href={launchUrl} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div></div></a>
     <div className="app-card-bottom"><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div>
   </article>;
 }
