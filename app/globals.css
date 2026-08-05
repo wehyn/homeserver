@@ -177,7 +177,8 @@ html[data-theme="light"] .filters-viewport::after { background: linear-gradient(
 .app-card { display: flex; flex-direction: column; border-radius: 14px; box-shadow: 0 14px 30px rgba(0,0,0,.1); }
 .app-card::before { display: none; }
 .app-card:hover { border-color: var(--line); box-shadow: 0 20px 38px rgba(0,0,0,.16); }
-.app-card .card-menu { position: absolute; top: 14px; right: 14px; z-index: 2; }
+.app-card .card-menu { position: absolute; top: 14px; right: 14px; z-index: 2; opacity: 0; transition: opacity .2s; }
+.app-card:hover .card-menu, .app-card:focus-within .card-menu { opacity: 1; }
 .app-link { flex: 1; flex-direction: column; justify-content: center; gap: 12px; padding: 38px 16px 34px; text-align: center; }
 .app-card .app-icon-large { width: 56px; height: 56px; flex-basis: 56px; border-radius: 15px; }
 .app-card-copy { width: 100%; }
