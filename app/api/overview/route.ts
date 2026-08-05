@@ -60,10 +60,10 @@ async function getHardwareSnapshot(): Promise<HardwareSnapshot> {
 function isHardwareSnapshot(value: unknown): value is HardwareSnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Partial<HardwareSnapshot>;
-  return (snapshot.temperatureC === null || typeof snapshot.temperatureC === "number")
-    && (snapshot.powerWatts === null || typeof snapshot.powerWatts === "number")
+  return (snapshot.temperatureC === null || isFiniteNumber(snapshot.temperatureC))
+    && (snapshot.powerWatts === null || (isFiniteNumber(snapshot.powerWatts) && snapshot.powerWatts >= 0))
     && (snapshot.powerSource === null || snapshot.powerSource === "intel-rapl")
-    && typeof snapshot.updatedAt === "string";
+    && typeof snapshot.updatedAt === "string" && snapshot.updatedAt.length > 0;
 }
 
 async function getCpuUsage() {
@@ -111,6 +111,10 @@ function getStorageUsage() {
 
 function roundPercent(value: number) {
   return Number(value.toFixed(2));
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function formatBytes(bytes: number) {

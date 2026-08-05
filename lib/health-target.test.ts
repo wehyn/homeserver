@@ -14,3 +14,9 @@ test("uses the configured health URL when CasaOS metadata is incomplete", () => 
   assert.equal(isCasaOSHealthSuccess(401), true);
   assert.equal(isCasaOSHealthSuccess(204), false);
 });
+
+test("rejects CasaOS host values that can change the health-check destination", () => {
+  assert.equal(buildCasaOSHealthTarget({ casaosScheme: "http", casaosHostname: "user@external.example", casaosPortMap: "8080", casaosIndex: "/" }), undefined);
+  assert.equal(buildCasaOSHealthTarget({ casaosScheme: "http", casaosHostname: "external.example/path", casaosPortMap: "8080", casaosIndex: "/" }), undefined);
+  assert.equal(buildCasaOSHealthTarget({ casaosScheme: "http", casaosHostname: "[::1]", casaosPortMap: "8080", casaosIndex: "/" }), "http://[::1]:8080/");
+});

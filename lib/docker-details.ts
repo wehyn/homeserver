@@ -104,9 +104,8 @@ function preferValues<T>(primary?: T[], fallback?: T[]) {
 
 function readUrlPort(value: string) {
   try {
-    const port = new URL(value).port;
-    if (!port) return null;
-    const numericPort = Number(port);
+    const url = new URL(value);
+    const numericPort = url.port ? Number(url.port) : url.protocol === "http:" ? 80 : url.protocol === "https:" ? 443 : NaN;
     return Number.isInteger(numericPort) ? numericPort : null;
   } catch {
     return null;

@@ -8,11 +8,17 @@ export function resolveHealthTarget(app: Pick<ManagedApp, "casaosScheme" | "casa
 export function buildCasaOSHealthTarget(app: Pick<ManagedApp, "casaosScheme" | "casaosHostname" | "casaosPortMap" | "casaosIndex">) {
   if (!app.casaosScheme || !app.casaosHostname || !app.casaosPortMap) return undefined;
   const port = parseCasaOSPort(app.casaosPortMap);
-  if (!port || /[\s/]/.test(app.casaosHostname)) return undefined;
+  if (!port) return undefined;
   try {
-    const target = new URL(`${app.casaosScheme}://${app.casaosHostname}`);
+    const hostname = app.casaosHostname.trim();
+    if (!hostname || /[\s/?#@\\]/.test(hostname)) return undefined;
+    const authority = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+    const target = new URL(`${app.casaosScheme}://${authority}`);
+    if (target.username || target.password || target.port || target.pathname !== "/" || target.search || target.hash) return undefined;
     target.port = String(port);
     target.pathname = normalizeIndex(app.casaosIndex || "/");
+    target.search = "";
+    target.hash = "";
     return target.href;
   } catch {
     return undefined;
