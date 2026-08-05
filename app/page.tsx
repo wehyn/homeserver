@@ -10,7 +10,7 @@ import {
   Thermometer, Trash2, TriangleAlert, X, Zap,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
-import { resolveAppLaunchUrl } from "@/lib/app-url";
+import { getAppUrlParts, isHostLocalService, resolveAppLaunchUrl, updateAppUrl, type AppUrlProtocol } from "@/lib/app-url";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 import { ThemeToggle } from "@/app/theme-toggle";
 
@@ -438,18 +438,39 @@ function SettingsPanel({ apps, editing, deletingId, saving, mutationError, onClo
 
 function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: ManagedApp; isNew: boolean; saving: boolean; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
   const [form, setForm] = useState(app);
+  const [currentHost, setCurrentHost] = useState(() => getAppUrlParts(app.url)?.host || "");
+  const urlParts = getAppUrlParts(form.url);
+  const hostLocalService = isHostLocalService(form);
+  const automaticHost = currentHost || urlParts?.host || "";
   const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
+  const updateWebUi = (protocol: AppUrlProtocol, port: string) => {
+    if (!automaticHost) return;
+    update("url", updateAppUrl(form.url, protocol, automaticHost, port));
+  };
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const savedForm = hostLocalService && automaticHost
+      ? { ...form, url: updateAppUrl(form.url, urlParts?.protocol || "http", automaticHost, urlParts?.port || "") }
+      : form;
+    onSave(savedForm);
+  };
   const handleDelete = () => {
     if (!window.confirm(`Delete ${form.name || "this application"}? This cannot be undone.`)) return;
     onDelete(form.id);
     onCancel();
   };
-  return <form className="app-form" onSubmit={(event) => { event.preventDefault(); onSave(form); }}>
+  useEffect(() => {
+    setCurrentHost(window.location.hostname);
+  }, []);
+  return <form className="app-form" onSubmit={handleSubmit}>
     <button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button>
     <div className="form-title"><AppIcon app={form} large proxy={false} /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div>
     <label>Title<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label>
-    <label>Web UI<input required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></label>
-    <div className="form-columns"><label>Category<select value={form.category} onChange={(event) => update("category", event.target.value)}>{categories.slice(2).map((item) => <option key={item}>{item}</option>)}<option>Other</option></select></label><label>Accent color<input type="color" value={form.color} onChange={(event) => update("color", event.target.value)} /></label></div>
+    {hostLocalService ? <div className="web-ui-editor"><div className="web-ui-fields">
+      <label>Protocol<select value={urlParts?.protocol || "http"} onChange={(event) => updateWebUi(event.target.value as AppUrlProtocol, urlParts?.port || "")}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label>
+      <label className="web-ui-host">IP<input value={automaticHost} readOnly aria-readonly="true" /></label>
+      <label>Port<input required type="number" min="1" max="65535" inputMode="numeric" value={urlParts?.port || ""} onChange={(event) => updateWebUi(urlParts?.protocol || "http", event.target.value)} /></label>
+    </div></div> : <div className="web-ui-editor"><input required type="url" aria-label="Application URL" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></div>}
     <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label>
     <label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label>
     <label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label>
@@ -466,16 +487,8 @@ function DockerDetails({ app }: { app: ManagedApp }) {
   const hasDockerLink = Boolean(details || app.source === "docker" || app.dockerProject || app.dockerService || app.containerId || app.containerName || app.containerImage);
   const image = details?.image || app.containerImage || "Not reported";
   const networks = details ? (details.networks.length ? details.networks.join(", ") : "No networks reported") : hasDockerLink ? "Awaiting Docker discovery" : "Not linked";
-  const metadataState = details?.source === "compose"
-    ? "Compose configuration · live Docker state is optional"
-    : details
-      ? "Live read-only container metadata"
-      : hasDockerLink
-        ? "No matching container metadata is available"
-        : "Link a Compose service to show container metadata";
   const empty = hasDockerLink ? "Docker discovery is unavailable" : "No Docker metadata";
   return <section className="docker-details" aria-label="Container metadata">
-    <div className="docker-details-heading"><div><h3>Docker details</h3><p>{metadataState}</p></div>{details && <span className={`docker-source docker-source-${details.source}`}>{details.source === "container" ? "Live" : "Compose"}</span>}</div>
     {!hasDockerLink && <div className="docker-details-empty"><strong>No Docker or Compose metadata</strong><p>Add a Compose project and service above to connect this application to its read-only service details.</p></div>}
     <div className="docker-metadata-grid">
       <MetadataItem label="Docker image tag" value={image} mono />
