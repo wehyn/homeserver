@@ -172,6 +172,21 @@ test("prefers the inspected image over an interpolated Compose image", () => {
   assert.equal(container?.image, "demo:release");
 });
 
+test("does not attach the first Compose service when a container lacks a service label", () => {
+  const container = normalizeDockerContainer(
+    { Id: "container-id", Names: ["/demo"], Image: "demo:latest", State: "running", Ports: [] },
+    { Id: "container-id", Config: { Labels: { "com.docker.compose.project": "demo" } } },
+    [{
+      project: "demo",
+      service: "web",
+      casaos: { scheme: "http", hostname: "web.local", portMap: "8080", index: "/" },
+      details: { image: "demo:web", networks: ["demo_default"], ports: [], volumes: [], environment: [] },
+    }],
+  );
+  assert.equal(container?.casaos, null);
+  assert.equal(container?.image, "demo:latest");
+});
+
 test("indexes CasaOS metadata beneath the configured services root", async () => {
   const root = await mkdtemp(join(tmpdir(), "nimbus-services-"));
   try {
@@ -256,6 +271,20 @@ test("collects Docker state through read-only GET-shaped requests", async () => 
   assert.deepEqual(snapshot.containers[0]?.volumes, [{ type: "bind", source: "/srv/demo", target: "/data", mode: "ro" }]);
   assert.deepEqual(snapshot.containers[0]?.environment, [{ name: "APP_MODE", value: "production" }, { name: "APP_SECRET", value: "<redacted>" }]);
   assert.deepEqual(calls, ["/containers/json?all=true", "/containers/container-id/json"]);
+});
+
+test("keeps live Docker discovery authoritative when Compose metadata is unavailable", async () => {
+  const missingRoot = join(tmpdir(), "nimbus-services-does-not-exist");
+  const snapshot = await collectDockerSnapshot({
+    socketPath: "/var/run/docker.sock",
+    servicesRoot: missingRoot,
+    requestJson: async (path) => path === "/containers/json?all=true"
+      ? [{ Id: "container-id", Names: ["/demo"], Image: "demo:latest", State: "running", Ports: [] }]
+      : { Id: "container-id", Name: "/demo", Config: {}, State: { Status: "running" } },
+  });
+  assert.equal(snapshot.status, "available");
+  assert.equal(snapshot.available, true);
+  assert.equal(snapshot.warnings.some((warning) => warning.includes("Compose metadata is unavailable")), true);
 });
 
 test("collapses IPv4 and IPv6 wildcard bindings for one published port", async () => {

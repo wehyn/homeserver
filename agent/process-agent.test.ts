@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HardwareSampler, calculatePower } from "./hardware.ts";
+import { HardwareSampler, calculatePower, readCpuTemperature } from "./hardware.ts";
 import { calculateCpuPercent, calculateProcessCpuPercent, collectProcessorSnapshot, collectSnapshot, sanitizeCommand } from "./process-agent.ts";
 
 test("collectSnapshot reads memory and sorts processes by RSS", async () => {
@@ -94,6 +94,9 @@ test("CPU percentages use total system CPU as the denominator", () => {
   assert.equal(calculateCpuPercent(200, 50), 75);
   assert.equal(calculateProcessCpuPercent(50, 200), 25);
   assert.equal(calculateProcessCpuPercent(-10, 200), 0);
+  assert.equal(calculateCpuPercent(200, -50), 100);
+  assert.equal(calculateProcessCpuPercent(500, 200), 100);
+  assert.equal(calculateCpuPercent(Number.NaN, 0), 0);
 });
 
 test("HardwareSampler reads CPU temperature and derives RAPL watts from cached samples", async () => {
@@ -134,4 +137,21 @@ test("power conversion rejects missing baselines and counter resets", () => {
   assert.equal(calculatePower(1_000_000, undefined, 5_000), null);
   assert.equal(calculatePower(500_000, { microjoules: 1_000_000, timestampMs: 0 }, 5_000), null);
   assert.equal(calculatePower(1_500_000, { microjoules: 1_000_000, timestampMs: 0 }, 5_000), 0.1);
+});
+
+test("finds CPU temperature sensors through arbitrary hwmon class links", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nimbus-hwmon-"));
+  const device = join(root, "devices", "platform", "coretemp.0", "hwmon", "hwmon2");
+  const classRoot = join(root, "class", "hwmon");
+  await mkdir(device, { recursive: true });
+  await mkdir(classRoot, { recursive: true });
+  await writeFile(join(device, "name"), "coretemp\n");
+  await writeFile(join(device, "temp1_input"), "52000\n");
+  await symlink("../../devices/platform/coretemp.0/hwmon/hwmon2", join(classRoot, "hwmon2"));
+
+  try {
+    assert.equal(await readCpuTemperature(root), 52);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
