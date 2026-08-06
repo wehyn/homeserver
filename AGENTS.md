@@ -1,86 +1,3 @@
-# Project Overview
-
-Nimbus is a local-first Next.js dashboard for launching and monitoring web apps hosted on a
-home server. It provides a browser UI for managing an application registry, stores that registry
-in a server-side SQLite database, exposes lightweight system and health APIs, and can be run with
-Node.js or Docker Compose; its elevator pitch is a private home-server control panel that keeps
-every service visible and reachable from one place.
-
-## Repository Structure
-
-- `app/` — Next.js App Router pages, shared browser styles, and API route handlers.
-  - `app/page.tsx` — client-side dashboard UI, filtering, health refresh, and app management.
-  - `app/layout.tsx` — root document layout and metadata.
-  - `app/globals.css` — global dashboard styles and responsive layout rules.
-  - `app/api/` — server-side JSON endpoints for apps, health checks, and system overview.
-- `lib/` — server/database helpers, seed data, and shared TypeScript domain types.
-- `data/` — local SQLite runtime files; database files are ignored by Git.
-- `public/` — static assets served by Next.js; currently contains only `.gitkeep`.
-- `.next/` — generated Next.js build and development output; do not edit by hand.
-- `Dockerfile` — multi-stage Node 24 Alpine image build and non-root production runtime.
-- `docker-compose.yml` — local deployment definition with a named persistent data volume.
-- `next.config.ts` — Next.js configuration, including standalone output.
-- `package.json` / `package-lock.json` — npm metadata, scripts, and locked dependencies.
-- `tsconfig.json` — strict TypeScript compiler settings and the `@/*` path alias.
-- `.env.example` — documented environment variable names and local defaults.
-- `.github/workflows/ci.yml` — GitHub Actions jobs for lint and build on `main` pushes and pull
-  requests.
-- `README.md` — user-facing local run, Docker deployment, and application setup notes.
-
-## Build & Development Commands
-
-Install dependencies (the documented command is):
-
-```bash
-npm install
-```
-
-Build and run the production server:
-
-```bash
-npm run build
-npm run start
-```
-
-Run the development server (the documented command is):
-
-```bash
-npm run dev
-```
-
-Run the current lint/type-check script. Despite its name, `lint` currently invokes TypeScript:
-
-```bash
-npm run lint
-```
-
-Run an explicit TypeScript check without emitting files:
-
-```bash
-npm exec tsc -- --noEmit
-```
-
-Debug the development server with Node’s inspector:
-
-```bash
-NODE_OPTIONS=--inspect npm run dev
-```
-
-Tests:
-
-```bash
-# TODO: No test script, test runner, or repository test suite is currently defined.
-```
-
-Deploy with Docker Compose (the documented command is):
-
-```bash
-docker compose up -d --build
-```
-
-The local app is available at `http://localhost:3000`. Node.js 24+ is required because the
-SQLite implementation uses the built-in `node:sqlite` API. The Docker image also uses Node 24.
-
 ## Code Style & Conventions
 
 - Use TypeScript with strict compiler checking and React components in `.tsx` files.
@@ -182,6 +99,11 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
 
 ## Agent Guardrails
 
+- Choose the simplest working solution.
+- Do not create abstractions that are not needed.
+- Check existing libraries and dependencies before adding new ones or implementing functionality
+  from scratch.
+- Do not create architectural debt with temporary fixes.
 - Do not edit `.next/`, `node_modules/`, SQLite files under `data/`, or `tsconfig.tsbuildinfo`;
   they are generated or runtime artifacts.
 - Do not add credentials, local hostnames, private URLs, or secrets to tracked source, fixtures,
@@ -223,13 +145,3 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
   static-asset hook.
 - No feature-flag system, plugin loader, or documented event hook exists. `> TODO: Define feature
   flag and plugin conventions before adding runtime extensibility.`
-
-## Further Reading
-
-- [README.md](README.md) — local development, Docker deployment, and app setup.
-- [Dockerfile](Dockerfile) — build stages, runtime user, and production entrypoint.
-- [docker-compose.yml](docker-compose.yml) — container settings and persistent storage.
-- [lib/types.ts](lib/types.ts) — shared application and server overview types.
-- `> TODO: Add [docs/ARCH.md](docs/ARCH.md) when a deeper architecture document exists.`
-- `> TODO: Add an ADR directory and link the decisions governing persistence, health checks, and
-  future Docker discovery.`
