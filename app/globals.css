@@ -205,3 +205,15 @@ html[data-theme="light"] .app-card { box-shadow: 0 14px 30px rgba(15,23,42,.08);
 @media (max-width: 510px) {
   .app-grid { grid-template-columns: repeat(auto-fill, 150px); justify-content: center; }
 }
+
+/* Keep lower dashboard panels on the same surface as the primary cards. */
+.activity-card,
+.storage-card {
+  background: var(--panel-solid);
+}
+
+/* Keep linked metric cards consistent on hover. */
+.stat-card-link:hover {
+  border-color: var(--line);
+  box-shadow: 0 16px 34px rgba(0,0,0,.08);
+}
