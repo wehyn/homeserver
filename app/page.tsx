@@ -16,6 +16,8 @@ import { ThemeToggle } from "@/app/theme-toggle";
 
 const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
 const craftyIconUrl = "https://gitlab.com/uploads/-/system/project/avatar/20430749/Crafty_4-0_Logo_square.ico?width=128";
+const immichIconUrl = "https://cdn.simpleicons.org/immich/ffb86b";
+const piholeIconUrl = "https://cdn.simpleicons.org/pihole/65e6a5";
 
 const iconPalette: Record<string, React.ComponentType<React.ComponentProps<typeof Cloud>>> = {
   "crafty-controller": GamepadIcon,
@@ -52,7 +54,10 @@ function getKnownIconUrl(app: ManagedApp) {
   const normalizedName = app.name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
   const isCrafty = normalizedId === "craftycontroller"
     || ["crafty", "craftycontroller", "crafty4"].includes(normalizedName);
-  return isCrafty ? craftyIconUrl : "";
+  if (isCrafty) return craftyIconUrl;
+  if (normalizedId === "immich" || normalizedName === "immich") return immichIconUrl;
+  if (normalizedId === "pihole" || normalizedName === "pihole") return piholeIconUrl;
+  return "";
 }
 
 function AppIcon({ app, large = false, proxy = true }: { app: ManagedApp; large?: boolean; proxy?: boolean }) {
@@ -67,8 +72,7 @@ function AppIcon({ app, large = false, proxy = true }: { app: ManagedApp; large?
   const iconSource = iconSources[sourceIndex] || "";
 
   return <div className={`app-icon ${large ? "app-icon-large" : ""}`} style={{ "--app-color": app.color } as React.CSSProperties}>
-    {iconSource && <img key={iconSource} src={iconSource} alt="" referrerPolicy="no-referrer" onError={() => setSourceIndex((current) => current + 1)} />}
-    <Icon className={iconSource ? "icon-fallback" : undefined} size={large ? 27 : 22} strokeWidth={1.8} />
+    {iconSource ? <img key={iconSource} src={iconSource} alt="" referrerPolicy="no-referrer" onError={() => setSourceIndex((current) => current + 1)} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} aria-hidden="true" />}
   </div>;
 }
 
