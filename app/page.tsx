@@ -5,9 +5,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
   Activity, Check, ChevronDown, Cloud, Cpu, Database,
-  ExternalLink, FolderKanban, Gauge, HardDrive, LayoutGrid, Menu, MoreHorizontal,
-  Network, Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Star,
-  Thermometer, Trash2, TriangleAlert, X, Zap,
+  FolderKanban, Gauge, HardDrive, LayoutGrid, Network,
+  Pencil, Plus, Power, RefreshCw, Search, Settings2, ShieldCheck, Sparkles,
+  Trash2, TriangleAlert, X,
 } from "lucide-react";
 import { seedApps } from "@/lib/seed";
 import { getAppUrlParts, isHostLocalService, resolveAppLaunchUrl, updateAppUrl, type AppUrlProtocol } from "@/lib/app-url";
@@ -76,17 +76,6 @@ function AppIcon({ app, large = false, proxy = true }: { app: ManagedApp; large?
   </div>;
 }
 
-function StatCard({ icon: Icon, label, value, detail, progress, tone, href, loading = false, className = "", children }: { icon: typeof Cpu; label: string; value: string; detail: string; progress?: number; tone: string; href?: string; loading?: boolean; className?: string; children?: React.ReactNode }) {
-  const content = <>
-    <div className="stat-card-top"><span className={`stat-icon ${tone}`}><Icon size={16} /></span><span>{label}</span></div>
-    <div className="stat-value">{value}</div><div className="stat-detail">{detail}</div>
-    {progress !== undefined && <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>}
-    {children}
-  </>;
-  const cardClassName = `stat-card${className ? ` ${className}` : ""}`;
-  return href ? <Link className={`${cardClassName} stat-card-link`} href={href} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</Link> : <div className={cardClassName} aria-busy={loading}>{content}</div>;
-}
-
 export default function Home() {
   const [apps, setApps] = useState<ManagedApp[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
@@ -94,7 +83,6 @@ export default function Home() {
   const [overview, setOverview] = useState<ServerOverview | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editing, setEditing] = useState<ManagedApp | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [overviewRefreshing, setOverviewRefreshing] = useState(true);
@@ -103,15 +91,14 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [mutationError, setMutationError] = useState("");
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
-  const [currentDate, setCurrentDate] = useState("");
+  const [clockTime, setClockTime] = useState("");
+  const [clockDate, setClockDate] = useState("");
   const activeHealthRefreshesRef = useRef(0);
   const healthRefreshVersionRef = useRef(0);
   const healthRequestRef = useRef<AbortController | null>(null);
   const overviewRequestRef = useRef<AbortController | null>(null);
   const savedNoticeTimeoutRef = useRef<number | null>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
-  const mobileMenuRef = useRef<HTMLButtonElement>(null);
-  const mobileSidebarCloseRef = useRef<HTMLButtonElement>(null);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
@@ -128,38 +115,21 @@ export default function Home() {
     setEditing(null);
   }, []);
 
-  const closeSidebar = useCallback(() => {
-    setSidebarOpen(false);
-    mobileMenuRef.current?.focus();
-  }, []);
-
   useEffect(() => {
     if (settingsOpen) return;
     const trigger = settingsTriggerRef.current;
-    if (trigger?.isConnected) {
-      const mobileSidebarIsClosed = trigger.closest("#primary-navigation") && window.matchMedia("(max-width: 800px)").matches && !sidebarOpen;
-      if (mobileSidebarIsClosed) mobileMenuRef.current?.focus();
-      else trigger.focus();
-    }
+    if (trigger?.isConnected) trigger.focus();
     settingsTriggerRef.current = null;
-  }, [settingsOpen, sidebarOpen]);
+  }, [settingsOpen]);
 
   useEffect(() => {
-    if (sidebarOpen && window.matchMedia("(max-width: 800px)").matches) mobileSidebarCloseRef.current?.focus();
-  }, [sidebarOpen]);
-
-  useEffect(() => {
-    const updateDate = () => setCurrentDate(new Intl.DateTimeFormat("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-    }).format(new Date()));
-    updateDate();
-    const interval = window.setInterval(updateDate, 1_000);
+    const updateClock = () => {
+      const now = new Date();
+      setClockTime(new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(now));
+      setClockDate(new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(now));
+    };
+    updateClock();
+    const interval = window.setInterval(updateClock, 30_000);
     return () => window.clearInterval(interval);
   }, []);
 
@@ -272,16 +242,6 @@ export default function Home() {
 
   const visibleApps = useMemo(() => apps.filter((app) => app.isVisible), [apps]);
 
-  const processorDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.cpuCores} logical cores · live` : "Loading system metrics…";
-  const storageDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading system metrics…";
-  const memoryDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : overview ? `${overview.memoryUsed} of ${overview.memoryTotal}` : "Loading system metrics…";
-  const temperatureValue = overview ? formatTemperature(overview.temperatureC) : "—";
-  const powerValue = overview ? formatPower(overview.powerWatts) : "—";
-  const temperatureDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : !overview ? "Loading system metrics…" : overview.temperatureC === null ? "Sensor unavailable" : "CPU package sensor · live";
-  const powerDetail = overviewError ? (overview ? "Last reading · update unavailable" : "System metrics unavailable") : !overview ? "Loading system metrics…" : overview.powerWatts === null ? (overview.powerSource ? "Sampling power sensor…" : "Power sensor unavailable") : "CPU package estimate · live";
-  const storageStatus = overviewError ? (overview ? "stale" : "unavailable") : overview ? "used" : "loading";
-  const storageLegendValue = (value?: string) => !overview || !value ? "—" : overviewError ? `${value} · stale` : value;
-
   async function saveApp(app: ManagedApp) {
     if (saving) return;
     setSaving(true);
@@ -324,52 +284,94 @@ export default function Home() {
     }
   }
 
-  return <main className="shell">
-    <aside id="primary-navigation" className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
-      <div className="brand"><div className="brand-mark"><span /><span /></div><span>Nimbus</span><button type="button" ref={mobileSidebarCloseRef} className="mobile-sidebar-close" onClick={closeSidebar} aria-label="Close navigation menu"><X size={19} aria-hidden="true" /></button></div>
-      <nav><p className="nav-label">Workspace</p><button type="button" className="nav-item active" onClick={closeSidebar}><LayoutGrid size={17} />Overview</button><p className="nav-label nav-label-space">System</p><button type="button" className="nav-item" onClick={() => { setSidebarOpen(false); openSettings(null); }}><Settings2 size={17} />Application management</button></nav>
-      <div className="sidebar-bottom"><div className="sidebar-uptime" role="status" aria-live="polite" aria-atomic="true" aria-busy={overviewRefreshing} aria-label={`System uptime: ${overview?.uptime || "Loading"}`}><span className="sidebar-uptime-icon"><Gauge size={15} aria-hidden="true" /></span><div><span>System uptime</span><strong>{overview?.uptime || "—"}</strong></div></div></div>
-    </aside>
-    {sidebarOpen && <button type="button" className="sidebar-backdrop" onClick={closeSidebar} aria-label="Close navigation menu" />}
-    <section className="content">
-      <header className="topbar"><button type="button" ref={mobileMenuRef} className="mobile-menu" onClick={() => sidebarOpen ? closeSidebar() : setSidebarOpen(true)} aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={sidebarOpen} aria-controls="primary-navigation"><Menu size={20} /></button><div className="breadcrumb"><span>Workspace</span><span>/</span><strong>Overview</strong></div><div className="top-actions"><button type="button" className="icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={17} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="icon-button" aria-label="Notifications"><BellIcon /></button><ThemeToggle /><button type="button" className="avatar-button" aria-label="Open account menu">D</button></div></header>
-      <div className="main-inner">
-        <section className="welcome-row"><div><p className="eyebrow">{currentDate}</p></div></section>
-        <section className="overview-grid" aria-busy={overviewRefreshing}><StatCard icon={Cpu} label="CPU" value={overview ? formatPercent(overview.cpu) : "—"} detail={processorDetail} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" className="processor-stat-card" loading={overviewRefreshing}><div className="processor-telemetry" role="group" aria-label="Processor hardware telemetry"><div className="processor-telemetry-item" title={temperatureDetail} aria-label={`CPU temperature: ${temperatureValue}. ${temperatureDetail}`}><span><Thermometer size={12} aria-hidden="true" /></span><strong>{temperatureValue}</strong></div><div className="processor-telemetry-item" title={powerDetail} aria-label={`CPU power: ${powerValue}. ${powerDetail}`}><span><Zap size={12} aria-hidden="true" /></span><strong>{powerValue}</strong></div></div></StatCard><StatCard icon={HardDrive} label="Storage used" value={overview ? formatPercent(overview.storage) : "—"} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /><StatCard icon={Database} label="Memory" value={overview ? formatPercent(overview.memory) : "—"} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} /></section>
-        <section className="apps-section" aria-busy={appsLoading}><div className="section-heading"><div><div className="section-title-row"><h2>Applications</h2></div></div><button type="button" className="button primary" onClick={() => openSettings(blankApp(apps.length))}><Plus size={17} />Add application</button></div>
-          <AnimatePresence mode="wait" initial={false}>
-            {appsLoading ? <motion.div key="apps-loading" className="empty-state" role="status" aria-live="polite" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><RefreshCw size={24} className="spin" aria-hidden="true" /><strong>Loading applications…</strong><span>Checking the application registry.</span></motion.div> : appsError ? <motion.div key="apps-error" className="empty-state" role="alert" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><TriangleAlert size={24} aria-hidden="true" /><strong>Applications unavailable</strong><span>{appsError}</span><button className="small-primary" onClick={() => void loadApps()}>Try again</button></motion.div> : visibleApps.length ? <motion.div key="app-grid" className="app-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition}>
-              <AnimatePresence initial={false} mode="popLayout">
-                {visibleApps.map((app) => <motion.div key={app.id} className="app-card-motion" layout initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={motionTransition}><AppCard app={app} onEdit={() => openSettings(app)} /></motion.div>)}
-              </AnimatePresence>
-              <button type="button" className="add-card" onClick={() => openSettings(blankApp(apps.length))}><span><Plus size={21} /></span><strong>Add application</strong></button>
-            </motion.div> : <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={24} /><strong>No visible applications</strong><span>Add an application or make one visible in management.</span></motion.div>}
-          </AnimatePresence>
-        </section>
-        <section className="lower-grid"><div className="activity-card"><div className="card-heading"><div><h3>Recent activity</h3></div><button type="button" className="more-button" onClick={() => void refreshActivities()} aria-label="Refresh recent activity"><MoreHorizontal size={17} aria-hidden="true" /></button></div>{activities.length ? activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />) : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="storage-card" aria-busy={overviewRefreshing}><div className="card-heading"><div><h3>Storage overview</h3></div></div><div className="storage-visual"><div className="donut" style={overview ? { background: `conic-gradient(var(--orange) 0 ${overview.storage}%, var(--donut-rest) ${overview.storage}% 100%)` } : undefined}><div><strong>{overview ? formatPercent(overview.storage) : "—"}</strong><small>{storageStatus}</small></div></div><div className="storage-legend"><div><span className="legend-dot orange-dot" />Used <b>{storageLegendValue(overview?.storageUsed)}</b></div><div><span className="legend-dot gray-dot" />Available <b>{storageLegendValue(overview?.storageAvailable)}</b></div><div><span className="legend-dot blue-dot" />Total <b>{storageLegendValue(overview?.storageTotal)}</b></div></div></div></div></section>
-        <footer><span className="footer-spacer" /><span className="connection"><span className="sync-dot" />Connected locally</span></footer>
+  const cpuValue = overview ? formatPercent(overview.cpu) : "—";
+  const memoryValue = overview ? formatPercent(overview.memory) : "—";
+  const storageValue = overview ? formatPercent(overview.storage) : "—";
+  const memoryDetail = overviewError ? "System metrics unavailable" : overview ? `${overview.memoryUsed} of ${overview.memoryTotal}` : "Loading";
+  const storageDetail = overviewError ? "System metrics unavailable" : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading";  const temperatureValue = overview ? formatTemperature(overview.temperatureC) : "—";
+  const powerValue = overview ? formatPower(overview.powerWatts) : "—";
+
+  let launcherContent: React.ReactNode;
+  if (appsLoading) {
+    launcherContent = <motion.div key="apps-loading" className="empty-state" role="status" aria-live="polite" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><RefreshCw size={24} className="spin" aria-hidden="true" /><strong>Loading applications…</strong><span>Checking the application registry.</span></motion.div>;
+  } else if (appsError) {
+    launcherContent = <motion.div key="apps-error" className="empty-state" role="alert" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><TriangleAlert size={28} aria-hidden="true" /><strong>Applications unavailable</strong><span>{appsError}</span><button className="small-primary" onClick={() => void loadApps()}>Try again</button></motion.div>;
+  } else if (visibleApps.length) {
+    launcherContent = <motion.div key="app-grid" className="launcher-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition}>
+      <AnimatePresence initial={false} mode="popLayout">
+        {visibleApps.map((app) => <motion.div key={app.id} className="launcher-tile-wrap" layout initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.98 }} transition={motionTransition}><LauncherTile app={app} /></motion.div>)}
+      </AnimatePresence>
+    </motion.div>;
+  } else {
+    launcherContent = <motion.div key="empty-state" className="empty-state" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={motionTransition}><Search size={28} /><strong>No visible applications</strong><span>Add an application or make one visible in management.</span><button className="small-primary" onClick={() => openSettings(null)}>Manage applications</button></motion.div>;
+  }
+
+  return <main className="launcher">
+    <header className="launcher-bar">
+      <div className="launcher-clock" aria-hidden="true"><span className="launcher-time">{clockTime || "—"}</span><span className="launcher-date">{clockDate}</span></div>
+      <div className="launcher-actions">
+        <span className="launcher-chip" role="status" aria-label={`System uptime: ${overview?.uptime || "—"}`}><span className="launcher-chip-icon"><Gauge size={12} aria-hidden="true" /></span><span className="launcher-chip-value">{overview?.uptime || "—"}</span></span>
+        <button type="button" className="launcher-icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={18} className={refreshing || overviewRefreshing ? "spin" : ""} /></button>
+        <ThemeToggle />
+        <button type="button" className="launcher-icon-button" onClick={() => openSettings(null)} aria-label="Application management" title="Application management"><Settings2 size={18} /></button>
       </div>
+    </header>
+    <section className="launcher-body" aria-busy={appsLoading}>
+      <AnimatePresence mode="wait" initial={false}>
+        {launcherContent}
+      </AnimatePresence>
+      <section className="launcher-widgets" aria-label="System status">
+        <LauncherWidget icon={<Cpu size={16} />} label="CPU" value={cpuValue} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" loading={overviewRefreshing}><div className="launcher-telemetry"><div><span>Package</span><strong>{temperatureValue}</strong></div><div><span>Power</span><strong>{powerValue}</strong></div></div></LauncherWidget>
+        <LauncherWidget icon={<Database size={16} />} label="Memory" value={memoryValue} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} />
+        <LauncherWidget icon={<HardDrive size={16} />} label="Storage" value={storageValue} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} />
+      </section>
     </section>
     <AnimatePresence initial={false}>
-      {settingsOpen && <motion.div key="application-modal" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} editing={editing} deletingId={deletingId} saving={saving} mutationError={mutationError} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
+      {settingsOpen && <motion.div key="application-modal" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} activities={activities} editing={editing} deletingId={deletingId} saving={saving} mutationError={mutationError} onRefreshActivity={() => void refreshActivities()} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
     </AnimatePresence>
     {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
     {mutationError && <div className="toast toast-error" role="alert"><TriangleAlert size={16} />{mutationError}</div>}
   </main>;
 }
 
-function AppCard({ app, onEdit }: { app: ManagedApp; onEdit: () => void }) {
+function LauncherTile({ app }: { app: ManagedApp }) {
   const [launchUrl, setLaunchUrl] = useState(app.url);
 
   useEffect(() => {
     setLaunchUrl(resolveAppLaunchUrl(app, window.location.hostname));
   }, [app]);
 
-  return <article className="app-card" style={{ "--app-color": app.color } as React.CSSProperties}>
-    <button type="button" className="card-menu" onClick={onEdit} aria-label={`Open details for ${app.name}`}><MoreHorizontal size={17} aria-hidden="true" /></button>
-    <a className="app-link" href={launchUrl} target="_blank" rel="noreferrer"><AppIcon app={app} large /><div className="app-card-copy"><div className="app-name-row"><h3>{app.name}</h3>{app.isFavorite && <Star className="favorite-star" size={14} fill="currentColor" aria-hidden="true" />}</div></div></a>
-    <div className="app-card-bottom"><span className="launch-link">Open <ExternalLink size={13} aria-hidden="true" /></span></div>
-  </article>;
+  return <a className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" title={`${app.name} · ${statusCopy[app.status]}`}>
+    <span className="launcher-iconwrap"><AppIcon app={app} large /></span>
+    <span className="launcher-name">{app.name}</span>
+  </a>;
+}
+
+function LauncherGauge({ percent, children }: { percent?: number; children: React.ReactNode }) {
+  const r = 46;
+  const circumference = 2 * Math.PI * r;
+  const arc = circumference * 0.75;
+  const gap = circumference - arc;
+  const clamped = percent === undefined ? 0 : Math.min(100, Math.max(0, percent));
+  return (
+    <div className="launcher-gauge">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="launcher-gauge-track" cx="60" cy="60" r={r} strokeWidth="11" fill="none" strokeDasharray={`${arc} ${gap}`} transform="rotate(135 60 60)" />
+        {percent !== undefined && <circle className="launcher-gauge-fill" cx="60" cy="60" r={r} strokeWidth="11" fill="none" strokeLinecap="round" strokeDasharray={`${arc} ${circumference}`} strokeDashoffset={arc * (1 - clamped / 100)} transform="rotate(135 60 60)" />}
+      </svg>
+      <div className="launcher-gauge-value">{children}</div>
+    </div>
+  );
+}
+
+function LauncherWidget({ icon, label, value, detail, progress, tone, href, loading = false, children }: { icon: React.ReactNode; label: string; value: string; detail?: string; progress?: number; tone: string; href?: string; loading?: boolean; children?: React.ReactNode }) {
+  const content = <>
+    <div className="launcher-widget-top"><span className={`stat-icon ${tone}`}>{icon}</span><span>{label}</span></div>
+    <div className="launcher-gauge-wrap"><LauncherGauge percent={progress}>{value}</LauncherGauge></div>
+    {detail && <div className="launcher-widget-detail">{detail}</div>}
+    {children}
+  </>;
+  return href ? <Link className="launcher-widget launcher-widget-link" href={href} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</Link> : <div className="launcher-widget" aria-busy={loading}>{content}</div>;
 }
 
 function ActivityRow({ activity }: { activity: ActivityEvent }) {
@@ -412,7 +414,7 @@ function formatRelativeTime(createdAt: string) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-function SettingsPanel({ apps, editing, deletingId, saving, mutationError, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; editing: ManagedApp | null; deletingId: string | null; saving: boolean; mutationError: string; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+function SettingsPanel({ apps, activities, editing, deletingId, saving, mutationError, onRefreshActivity, onClose, onEdit, onSave, onDelete }: { apps: ManagedApp[]; activities: ActivityEvent[]; editing: ManagedApp | null; deletingId: string | null; saving: boolean; mutationError: string; onRefreshActivity: () => void; onClose: () => void; onEdit: (app: ManagedApp | null) => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -445,7 +447,7 @@ function SettingsPanel({ apps, editing, deletingId, saving, mutationError, onClo
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editing, onClose]);
 
-  return <section ref={panelRef} className={`settings-panel${editing ? " details-panel" : ""}`} role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">{editing ? "Application details" : "Application management"}</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close application modal"><X size={19} aria-hidden="true" /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} isNew={!apps.some((app) => app.id === editing.id)} saving={saving} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></section>;
+  return <section ref={panelRef} className={`settings-panel${editing ? " details-panel" : ""}`} role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}><div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">{editing ? "Application details" : "Application management"}</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close application modal"><X size={19} aria-hidden="true" /></button></div><AnimatePresence mode="wait" initial={false}>{editing ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} isNew={!apps.some((app) => app.id === editing.id)} saving={saving} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div> : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}><div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div><div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div></div><div className="panel-section"><div className="panel-section-heading"><div><h3>Recent activity</h3><p>App changes and health events.</p></div>{activities.length > 0 && <button type="button" className="more-button" onClick={onRefreshActivity} aria-label="Refresh recent activity"><RefreshCw size={15} aria-hidden="true" /></button>}</div>{activities.length ? <div className="settings-activity">{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />)}</div> : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div><div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div></motion.div>}</AnimatePresence></section>;
 }
 
 function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: ManagedApp; isNew: boolean; saving: boolean; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
@@ -556,7 +558,6 @@ function formatDockerVolume(volume: NonNullable<ManagedApp["dockerDetails"]>["vo
 }
 
 function blankApp(order: number): ManagedApp { return { id: `app-${Date.now()}`, name: "", description: "", category: "Productivity", url: "", icon: "", color: "#65e6a5", healthUrl: "", allowInsecureTls: false, status: "unknown", source: "manual", isFavorite: false, isVisible: true, sortOrder: order }; }
-function BellIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>; }
 function formatPercent(value: number) { return `${value.toFixed(2)}%`; }
 function formatTemperature(value: number | null) { return value === null ? "Unavailable" : `${value}°C`; }
 function formatPower(value: number | null) { return value === null ? "Unavailable" : `${value.toFixed(2)} W`; }
