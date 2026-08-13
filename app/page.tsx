@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import Link from "next/link";
 import {
   Activity, Check, ChevronDown, Cloud, Cpu, Database,
   FolderKanban, Gauge, HardDrive, LayoutGrid, Network,
@@ -12,6 +11,7 @@ import {
 import { seedApps } from "@/lib/seed";
 import { getAppUrlParts, isHostLocalService, resolveAppLaunchUrl, updateAppUrl, type AppUrlProtocol } from "@/lib/app-url";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
+import SystemDetailsModal, { type SystemDetailKind } from "@/app/system-details-modal";
 import { ThemeToggle } from "@/app/theme-toggle";
 
 const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
@@ -82,6 +82,7 @@ export default function Home() {
   const [appsError, setAppsError] = useState("");
   const [overview, setOverview] = useState<ServerOverview | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [systemDetails, setSystemDetails] = useState<SystemDetailKind | null>(null);
   const [editing, setEditing] = useState<ManagedApp | null>(null);
   const [savedNotice, setSavedNotice] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -99,6 +100,7 @@ export default function Home() {
   const overviewRequestRef = useRef<AbortController | null>(null);
   const savedNoticeTimeoutRef = useRef<number | null>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
+  const systemDetailsTriggerRef = useRef<HTMLElement | null>(null);
   const appsRef = useRef(apps);
   appsRef.current = apps;
 
@@ -115,12 +117,29 @@ export default function Home() {
     setEditing(null);
   }, []);
 
+  const openSystemDetails = useCallback((kind: SystemDetailKind) => {
+    const activeElement = document.activeElement;
+    systemDetailsTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+    setSystemDetails(kind);
+  }, []);
+
+  const closeSystemDetails = useCallback(() => {
+    setSystemDetails(null);
+  }, []);
+
   useEffect(() => {
     if (settingsOpen) return;
     const trigger = settingsTriggerRef.current;
     if (trigger?.isConnected) trigger.focus();
     settingsTriggerRef.current = null;
   }, [settingsOpen]);
+
+  useEffect(() => {
+    if (systemDetails) return;
+    const trigger = systemDetailsTriggerRef.current;
+    if (trigger?.isConnected) trigger.focus();
+    systemDetailsTriggerRef.current = null;
+  }, [systemDetails]);
 
   useEffect(() => {
     const updateClock = () => {
@@ -321,13 +340,16 @@ export default function Home() {
         {launcherContent}
       </AnimatePresence>
       <section className="launcher-widgets" aria-label="System status">
-        <LauncherWidget icon={<Cpu size={16} />} label="CPU" value={cpuValue} progress={overview ? overview.cpu : undefined} tone="green" href="/processor" loading={overviewRefreshing}><div className="launcher-telemetry"><div><span>Package</span><strong>{temperatureValue}</strong></div><div><span>Power</span><strong>{powerValue}</strong></div></div></LauncherWidget>
-        <LauncherWidget icon={<Database size={16} />} label="Memory" value={memoryValue} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" href="/memory" loading={overviewRefreshing} />
+        <LauncherWidget icon={<Cpu size={16} />} label="CPU" value={cpuValue} progress={overview ? overview.cpu : undefined} tone="green" onOpen={() => openSystemDetails("processor")} loading={overviewRefreshing}><div className="launcher-telemetry"><div><span>Package</span><strong>{temperatureValue}</strong></div><div><span>Power</span><strong>{powerValue}</strong></div></div></LauncherWidget>
+        <LauncherWidget icon={<Database size={16} />} label="Memory" value={memoryValue} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" onOpen={() => openSystemDetails("memory")} loading={overviewRefreshing} />
         <LauncherWidget icon={<HardDrive size={16} />} label="Storage" value={storageValue} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} />
       </section>
     </section>
     <AnimatePresence initial={false}>
       {settingsOpen && <motion.div key="application-modal" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} activities={activities} editing={editing} deletingId={deletingId} saving={saving} mutationError={mutationError} onRefreshActivity={() => void refreshActivities()} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}
+    </AnimatePresence>
+    <AnimatePresence initial={false}>
+      {systemDetails && <SystemDetailsModal key={systemDetails} kind={systemDetails} onClose={closeSystemDetails} />}
     </AnimatePresence>
     {savedNotice && <div className="toast"><Check size={16} />Changes saved</div>}
     {mutationError && <div className="toast toast-error" role="alert"><TriangleAlert size={16} />{mutationError}</div>}
@@ -364,14 +386,14 @@ function LauncherGauge({ percent, children }: { percent?: number; children: Reac
   );
 }
 
-function LauncherWidget({ icon, label, value, detail, progress, tone, href, loading = false, children }: { icon: React.ReactNode; label: string; value: string; detail?: string; progress?: number; tone: string; href?: string; loading?: boolean; children?: React.ReactNode }) {
+function LauncherWidget({ icon, label, value, detail, progress, tone, onOpen, loading = false, children }: { icon: React.ReactNode; label: string; value: string; detail?: string; progress?: number; tone: string; onOpen?: () => void; loading?: boolean; children?: React.ReactNode }) {
   const content = <>
     <div className="launcher-widget-top"><span className={`stat-icon ${tone}`}>{icon}</span><span>{label}</span></div>
     <div className="launcher-gauge-wrap"><LauncherGauge percent={progress}>{value}</LauncherGauge></div>
     {detail && <div className="launcher-widget-detail">{detail}</div>}
     {children}
   </>;
-  return href ? <Link className="launcher-widget launcher-widget-link" href={href} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</Link> : <div className="launcher-widget" aria-busy={loading}>{content}</div>;
+  return onOpen ? <button type="button" className="launcher-widget launcher-widget-link" onClick={onOpen} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</button> : <div className="launcher-widget" aria-busy={loading}>{content}</div>;
 }
 
 function ActivityRow({ activity }: { activity: ActivityEvent }) {
