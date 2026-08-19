@@ -16,8 +16,8 @@ import { ThemeToggle } from "@/app/theme-toggle";
 
 const categories = ["All apps", "Favorites", "Media", "Infrastructure", "Productivity", "Gaming"];
 const craftyIconUrl = "https://gitlab.com/uploads/-/system/project/avatar/20430749/Crafty_4-0_Logo_square.ico?width=128";
-const immichIconUrl = "https://cdn.simpleicons.org/immich/ffb86b";
-const piholeIconUrl = "https://cdn.simpleicons.org/pihole/65e6a5";
+const immichIconUrl = "https://cdn.simpleicons.org/immich";
+const piholeIconUrl = "https://cdn.simpleicons.org/pihole";
 
 const iconPalette: Record<string, React.ComponentType<React.ComponentProps<typeof Cloud>>> = {
   "crafty-controller": GamepadIcon,

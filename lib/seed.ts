@@ -35,7 +35,7 @@ export const seedApps: ManagedApp[] = [
     description: "Personal photo library",
     category: "Media",
     url: "http://localhost:2283",
-    icon: "https://cdn.simpleicons.org/immich/ffb86b",
+    icon: "https://cdn.simpleicons.org/immich",
     color: "#ffb86b",
     status: "unknown",
     source: "manual",
