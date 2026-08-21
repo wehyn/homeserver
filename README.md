@@ -11,6 +11,10 @@ links, health status, and basic system metrics in one calm home screen.
 - Application management with SQLite persistence and optional Docker/Compose discovery
 - Processor and memory detail views with sortable process tables
 
+## Preview
+
+![Nimbus dashboard](./public/nimbus-dashboard.png)
+
 ## Run locally
 
 Node.js 24+ is required for the built-in `node:sqlite` API.
