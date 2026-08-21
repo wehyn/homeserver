@@ -308,15 +308,23 @@ h1, h2, h3, p { margin: 0; }
   .docker-metadata-grid { grid-template-columns: 1fr; }
   .web-ui-fields { grid-template-columns: 1fr 1fr; }
   .web-ui-host { grid-column: 1 / -1; grid-row: 1; }
-  .system-details-modal { max-height: calc(100dvh - 16px); padding: 22px 18px 18px; }
-  .system-details-header { gap: 16px; }
+  .system-details-backdrop { padding: 24px 16px; }
+  .system-details-modal { max-height: calc(100dvh - 48px); padding: 18px 16px 14px; }
+  .system-details-header { gap: 12px; padding-bottom: 16px; }
   .system-details-header h2 { font-size: 21px; }
   .system-details-description { font-size: 10px; }
   .system-details-actions { gap: 7px; }
   .system-details-status { display: none; }
-  .system-details-summary { margin-top: 16px; }
-  .system-details-process-card { padding: 14px; }
-  .system-details-footer { display: block; line-height: 1.8; }
+  .system-details-summary { gap: 8px; margin-top: 14px; margin-bottom: 10px; }
+  .system-details-summary .memory-summary-card { min-height: 88px; padding: 12px 13px; }
+  .system-details-summary .memory-summary-card strong { font-size: 20px; }
+  .system-details-summary .memory-summary-card small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .system-details-process-card { padding: 12px; }
+  .system-details-process-card .card-heading { margin-bottom: 14px; }
+  .system-details-process-card .process-table th { padding: 10px 8px 8px; }
+  .system-details-process-card .process-table td { padding-top: 10px; padding-bottom: 10px; }
+  .system-details-process-card .process-state { min-height: 130px; }
+  .system-details-footer { display: block; margin-top: 12px; line-height: 1.8; }
   .system-details-footer > span:last-child { margin-left: 0; }
 }
 @media (max-width: 640px) {
