@@ -1,0 +1,176 @@
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Activity, Check, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
+import { getAppUrlParts, isHostLocalService, updateAppUrl, type AppUrlProtocol } from "@/lib/app-url";
+import type { ActivityEvent, ManagedApp } from "@/lib/types";
+import { AppIcon } from "./icons";
+import { ActivityRow } from "./activity";
+import { statusCopy, blankApp } from "./utils";
+
+const motionTransition = { duration: 0.2, ease: "easeOut" as const };
+
+type SettingsPanelProps = {
+  apps: ManagedApp[];
+  activities: ActivityEvent[];
+  editing: ManagedApp | null;
+  deletingId: string | null;
+  saving: boolean;
+  mutationError: string;
+  onRefreshActivity: () => void;
+  onClose: () => void;
+  onEdit: (app: ManagedApp | null) => void;
+  onSave: (app: ManagedApp) => void;
+  onDelete: (id: string) => void;
+};
+
+export function SettingsPanel({ apps, activities, editing, deletingId, saving, mutationError, onRefreshActivity, onClose, onEdit, onSave, onDelete }: SettingsPanelProps) {
+  const panelRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusableElements = Array.from(panelRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex=\"-1\"])")
+      );
+      if (!focusableElements.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [editing, onClose]);
+
+  return <section ref={panelRef} className={`settings-panel${editing ? " details-panel" : ""}`} role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
+    <div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">{editing ? "Application details" : "Application management"}</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close application modal"><X size={19} aria-hidden="true" /></button></div>
+    <AnimatePresence mode="wait" initial={false}>
+      {editing
+        ? <motion.div key={`form-${editing.id}`} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={motionTransition}><AppForm app={editing} isNew={!apps.some((app) => app.id === editing.id)} saving={saving} onCancel={() => onEdit(null)} onSave={onSave} onDelete={onDelete} /></motion.div>
+        : <motion.div key="application-list" initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 12 }} transition={motionTransition}>
+          <div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div>
+            <div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div>
+          </div>
+          <div className="panel-section"><div className="panel-section-heading"><div><h3>Recent activity</h3><p>App changes and health events.</p></div>{activities.length > 0 && <button type="button" className="more-button" onClick={onRefreshActivity} aria-label="Refresh recent activity"><RefreshCw size={15} aria-hidden="true" /></button>}</div>{activities.length ? <div className="settings-activity">{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />)}</div> : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div>
+          <div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div>
+        </motion.div>}
+    </AnimatePresence>
+    {mutationError && <p className="panel-error" role="alert">{mutationError}</p>}
+  </section>;
+}
+
+function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: ManagedApp; isNew: boolean; saving: boolean; onCancel: () => void; onSave: (app: ManagedApp) => void; onDelete: (id: string) => void }) {
+  const [form, setForm] = useState(app);
+  const [currentHost, setCurrentHost] = useState(() => getAppUrlParts(app.url)?.host || "");
+  const urlParts = getAppUrlParts(form.url);
+  const hostLocalService = isHostLocalService(form);
+  const automaticHost = currentHost || urlParts?.host || "";
+  const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
+  const updateWebUi = (protocol: AppUrlProtocol, port: string) => {
+    if (!automaticHost) return;
+    update("url", updateAppUrl(form.url, protocol, automaticHost, port));
+  };
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const savedForm = hostLocalService && automaticHost
+      ? { ...form, url: updateAppUrl(form.url, urlParts?.protocol || "http", automaticHost, urlParts?.port || "") }
+      : form;
+    onSave(savedForm);
+  }
+
+  function handleDelete() {
+    if (!window.confirm(`Delete ${form.name || "this application"}? This cannot be undone.`)) return;
+    onDelete(form.id);
+    onCancel();
+  }
+
+  useEffect(() => {
+    setCurrentHost(window.location.hostname);
+  }, []);
+
+  return <form className="app-form" onSubmit={handleSubmit}>
+    <button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button>
+    <div className="form-title"><AppIcon app={form} large proxy={false} /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div>
+    <label>Title<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label>
+    {hostLocalService ? <div className="web-ui-editor"><div className="web-ui-fields"><label>Protocol<select value={urlParts?.protocol || "http"} onChange={(event) => updateWebUi(event.target.value as AppUrlProtocol, urlParts?.port || "")}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label><label className="web-ui-host">IP<input value={automaticHost} readOnly aria-readonly="true" /></label><label>Port<input required type="number" min="1" max="65535" inputMode="numeric" value={urlParts?.port || ""} onChange={(event) => updateWebUi(urlParts?.protocol || "http", event.target.value)} /></label></div></div> : <div className="web-ui-editor"><input required type="url" aria-label="Application URL" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></div>}
+    <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label>
+    <label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label>
+    <label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label>
+    <div className="form-columns form-columns-equal"><label>Compose project <span className="optional">optional</span><input value={form.dockerProject || ""} onChange={(event) => update("dockerProject", event.target.value)} placeholder="project-name" /></label><label>Compose service <span className="optional">optional</span><input value={form.dockerService || ""} onChange={(event) => update("dockerService", event.target.value)} placeholder="service-name" /></label></div>
+    <DockerDetails app={form} />
+    <label className="toggle-row"><span><strong>Allow self-signed TLS</strong><small>Health checks and favicon fetching; use for trusted private services.</small></span><button type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-pressed={form.allowInsecureTls}><span /></button></label>
+    <label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label>
+    <div className="form-actions"><button type="button" className="button subtle" onClick={onCancel} disabled={saving}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete} disabled={saving}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary" disabled={saving}><Check size={16} aria-hidden="true" />{saving ? "Saving…" : "Save changes"}</button></div>
+  </form>;
+}
+
+function DockerDetails({ app }: { app: ManagedApp }) {
+  const details = app.dockerDetails;
+  const hasDockerLink = Boolean(details || app.source === "docker" || app.dockerProject || app.dockerService || app.containerId || app.containerName || app.containerImage);
+  const image = details?.image || app.containerImage || "Not reported";
+  const networks = details ? (details.networks.length ? details.networks.join(", ") : "No networks reported") : hasDockerLink ? "Awaiting Docker discovery" : "Not linked";
+  const empty = hasDockerLink ? "Docker discovery is unavailable" : "No Docker metadata";
+
+  return <section className="docker-details" aria-label="Container metadata">
+    {!hasDockerLink && <div className="docker-details-empty"><strong>No Docker or Compose metadata</strong><p>Add a Compose project and service above to connect this application to its read-only service details.</p></div>}
+    <div className="docker-metadata-grid"><MetadataItem label="Docker image tag" value={image} mono /><MetadataItem label="Network" value={networks} />{app.containerState && <MetadataItem label="Container status" value={app.containerState} />}</div>
+    <DockerMetadataList label="Ports" empty={details ? "No declared ports" : empty} items={details ? formatDockerPorts(details.ports) : undefined} />
+    <DockerMetadataList label="Volumes" empty={details ? "No mounted volumes" : empty} items={details?.volumes.map(formatDockerVolume)} />
+    <DockerMetadataList label="Environment variables" empty={details ? "No environment variables reported" : empty} items={details?.environment.map((variable) => `${variable.name}=${variable.value}`)} mono />
+  </section>;
+}
+
+function MetadataItem({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return <div className="docker-metadata-item"><span>{label}</span><strong className={mono ? "docker-mono" : ""}>{value}</strong></div>;
+}
+
+function DockerMetadataList({ label, empty, items, mono = false }: { label: string; empty: string; items?: string[]; mono?: boolean }) {
+  return <div className="docker-metadata-list"><span>{label}</span>{items?.length ? <ul>{items.map((item, index) => <li key={`${label}-${index}`} className={mono ? "docker-mono" : ""}>{item}</li>)}</ul> : <strong>{empty}</strong>}</div>;
+}
+
+function formatDockerPorts(ports: NonNullable<ManagedApp["dockerDetails"]>["ports"]) {
+  const groups: NonNullable<ManagedApp["dockerDetails"]>["ports"][] = [];
+  for (const port of ports) {
+    const current = groups[groups.length - 1];
+    const previous = current?.[current.length - 1];
+    if (previous && canJoinPortRange(previous, port)) current.push(port);
+    else groups.push([port]);
+  }
+  return groups.map(formatDockerPortRange);
+}
+
+function canJoinPortRange(previous: NonNullable<ManagedApp["dockerDetails"]>["ports"][number], next: NonNullable<ManagedApp["dockerDetails"]>["ports"][number]) {
+  if (previous.protocol !== next.protocol || previous.hostIp !== next.hostIp || next.containerPort !== previous.containerPort + 1) return false;
+  if (previous.hostPort === null || next.hostPort === null) return previous.hostPort === null && next.hostPort === null;
+  return next.hostPort === previous.hostPort + 1;
+}
+
+function formatDockerPortRange(ports: NonNullable<ManagedApp["dockerDetails"]>["ports"]) {
+  const first = ports[0];
+  const last = ports[ports.length - 1];
+  const host = first.hostPort === null ? "container-only" : `${first.hostIp && first.hostIp !== "0.0.0.0" ? `${first.hostIp}:` : ""}${formatPortRange(first.hostPort, last.hostPort ?? first.hostPort)}`;
+  return `${host} → ${formatPortRange(first.containerPort, last.containerPort)}/${first.protocol}`;
+}
+
+function formatPortRange(first: number, last: number) {
+  return first === last ? `${first}` : `${first}–${last}`;
+}
+
+function formatDockerVolume(volume: NonNullable<ManagedApp["dockerDetails"]>["volumes"][number]) {
+  return `${volume.type} · ${volume.source || "anonymous"} → ${volume.target}${volume.mode ? ` (${volume.mode})` : ""}`;
+}
