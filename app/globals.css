@@ -82,10 +82,13 @@ h1, h2, h3, p { margin: 0; }
 .launcher-system { display: flex; justify-content: center; }
 .launcher-apps { display: flex; justify-content: center; }
 .launcher-grid { width: min(100%, clamp(680px, 44vw, 840px)); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: clamp(16px, 2vw, 42px); row-gap: clamp(34px, 5vh, 60px); align-content: start; }
+.launcher-grid-empty { grid-template-columns: minmax(0, 1fr); }
+.launcher-grid-empty .launcher-tile-wrap { display: flex; justify-content: center; }
 .launcher-tile-wrap { min-width: 0; }
 .launcher-tile { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 0; border-radius: 18px; touch-action: manipulation; user-select: none; -webkit-user-select: none; text-align: center; transition: transform .2s; }
 .launcher-tile:hover { transform: translateY(-3px); }
 .launcher-tile:active { transform: scale(.95); }
+.launcher-add-tile { width: 100%; border: 0; background: transparent; color: var(--muted); font: inherit; }
 .launcher-iconwrap { position: relative; display: block; }
 .app-icon { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 11px; color: var(--app-color); display: grid; place-items: center; background: color-mix(in srgb, var(--app-color) 10%, rgba(255, 255, 255, .06)); border: 1px solid color-mix(in srgb, var(--app-color) 20%, transparent); position: relative; overflow: hidden; }
 .app-icon-large { width: 49px; height: 49px; flex-basis: 49px; border-radius: 13px; }
@@ -95,6 +98,13 @@ h1, h2, h3, p { margin: 0; }
 .launcher-tile .app-icon-large[data-app-id="immich"] img { width: 64%; height: 64%; }
 .launcher-tile .app-icon-large svg { z-index: 2; width: 47%; height: 47%; color: var(--app-color); filter: none; }
 .launcher-tile:hover .app-icon-large { border-color: rgba(255, 255, 255, .2); background: #15181d; box-shadow: 0 14px 30px rgba(0, 0, 0, .22); }
+.launcher-add-tile .add-app-icon { border-color: transparent; border-radius: 17px; background: rgba(18, 21, 26, .88); color: var(--muted); box-shadow: none; transition: background .2s, box-shadow .2s; }
+.launcher-tile .app-icon-large .add-app-border { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; color: rgba(255, 255, 255, .14); pointer-events: none; }
+.add-app-border path { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-dasharray: 5 3; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.launcher-tile .app-icon-large .add-app-plus { position: relative; z-index: 2; color: var(--muted); }
+.launcher-add-tile:hover .add-app-icon, .launcher-add-tile:focus-visible .add-app-icon { background: #15181d; box-shadow: 0 14px 30px rgba(0, 0, 0, .22); }
+.launcher-add-tile:hover .add-app-border, .launcher-add-tile:focus-visible .add-app-border { color: rgba(255, 255, 255, .2); }
+.launcher-add-tile:hover .add-app-plus, .launcher-add-tile:focus-visible .add-app-plus { color: var(--accent); }
 .system-card { width: min(100%, clamp(400px, 24vw, 470px)); overflow: hidden; border: 1px solid rgba(255, 255, 255, .12); border-radius: 17px; background: rgba(17, 20, 25, .9); box-shadow: 0 14px 36px rgba(0, 0, 0, .14); backdrop-filter: blur(10px); }
 .system-ring-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid rgba(255, 255, 255, .1); }
 .system-metric { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; }
