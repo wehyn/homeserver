@@ -24,7 +24,7 @@
 
 ```mermaid
 flowchart TD
-    Browser[Browser: app/page.tsx] --> Next[Next.js App Router]
+    Browser[Browser: launcher UI in app/page.tsx and app/launcher/] --> Next[Next.js App Router]
     Next --> AppsAPI[GET/POST/DELETE /api/apps]
     Next --> HealthAPI[GET /api/health]
     Next --> OverviewAPI[GET /api/overview]
@@ -36,7 +36,7 @@ flowchart TD
     Next --> Static[app/globals.css and public/]
 ```
 
-The browser renders the dashboard and initially loads the application registry and server
+The browser renders the launcher and initially loads the application registry and server
 overview from the API routes. App changes are sent to `/api/apps`, whose handlers delegate to the
 singleton `DatabaseSync` connection in `lib/db.ts`; the database creates its schema and seeds
 from `lib/seed.ts` when empty. The overview endpoint derives uptime, load-based CPU, and memory
@@ -47,24 +47,26 @@ runtime, and Docker Compose persists SQLite data in the `nimbus-data` named volu
 
 ## Testing Strategy
 
-Unit tests:
+Unit and helper tests:
 
-- No unit-test framework, test files, or test script is currently present.
-- `> TODO: Add unit coverage for database row mapping, uptime formatting, request validation,
-  and health-status classification.`
+- `npm test` runs Node’s built-in test runner over `agent/*.test.ts` and `lib/*.test.ts`.
+- Coverage includes Docker/CasaOS discovery, metrics sampling, URL handling, request validation,
+  database-row mapping, and health-target construction.
 
 Integration tests:
 
-- The API routes are the main integration boundary: `/api/apps`, `/api/health`, and
-  `/api/overview`.
-- `> TODO: Add an integration runner and document the command for exercising these routes with a
-  temporary `DATABASE_PATH`.`
+- The API routes are the main integration boundary: `/api/apps`, `/api/health`, `/api/overview`,
+  `/api/activity`, and the processor/memory detail routes.
+- Route behavior is exercised through local browser smoke tests and can be checked manually with a
+  temporary `DATABASE_PATH`.
 
 End-to-end tests:
 
-- No browser E2E tool or suite is configured.
-- `> TODO: Add an E2E tool and cover loading the dashboard, adding/editing/deleting an app,
-  filtering, and health refresh behavior.`
+- No checked-in browser E2E suite is configured; Playwright CLI is used for local smoke coverage
+  against `http://localhost:3000`.
+- Local smoke coverage should include loading the launcher, theme switching, application
+  management, add/edit/delete flows, modal focus/escape behavior, system detail dialogs, health
+  refresh, and mobile layout.
 
 Local verification currently consists of `npm run lint`, `npm run build`, and a manual smoke test
 against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs `npm ci`,
@@ -84,9 +86,8 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
   `.env.example`. Never commit credentials, private keys, tokens, or production database files.
 - `DATABASE_PATH` selects the SQLite file. In Compose it is `/app/data/nimbus.db`, persisted by
   the `nimbus-data` volume; local database files under `data/` are ignored.
-- `DOCKER_SOCKET` is documented for future discovery, but the current Compose socket mount is
-  commented out. Do not enable Docker socket access without an explicit security review because
-  the socket grants powerful control over the host.
+- `DOCKER_SOCKET` is opt-in through `docker-compose.docker.yml`. Do not enable Docker socket access
+  without an explicit security review because the socket grants powerful control over the host.
 - `/api/health` accepts caller-supplied HTTP(S) URLs and makes server-side requests. Treat this as
   an SSRF boundary: validate and constrain allowed destinations before exposing Nimbus beyond a
   trusted LAN, and do not weaken the protocol check or timeout casually.
@@ -139,8 +140,8 @@ against `http://localhost:3000` after `npm run dev` or `npm run start`. CI runs 
 - Seed or change default applications in `lib/seed.ts`. The seed is inserted only when the SQLite
   `apps` table is empty.
 - `DATABASE_PATH` selects the SQLite database location.
-- `DOCKER_SOCKET` is reserved for future Docker Compose discovery; discovery is not implemented,
-  and the socket mount remains commented out in `docker-compose.yml`.
+- `DOCKER_SOCKET` is reserved for optional Docker Compose discovery; the default Compose file keeps
+  the socket mount disabled while the metrics agent can still use read-only Compose metadata.
 - Next.js standalone output is configured in `next.config.ts`, and the `public/` directory is the
   static-asset hook.
 - No feature-flag system, plugin loader, or documented event hook exists. `> TODO: Define feature

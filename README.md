@@ -1,16 +1,15 @@
 # Nimbus
 
-Nimbus is a local-first dashboard for launching and monitoring the web apps hosted on your home
-server. It keeps service links, health status, and basic system metrics in one place.
-
-![Nimbus dashboard](public/nimbus-dashboard.png)
+Nimbus is a local-first launcher for the web apps hosted on your home server. It keeps service
+links, health status, and basic system metrics in one calm home screen.
 
 ## Features
 
-- App registry with launch links, categories, icons, and optional health checks
-- CPU, memory, storage, and uptime overview
-- Automatic service-health refresh and recent activity
-- SQLite persistence with optional Docker/Compose discovery
+- Kiosk-friendly service launcher with custom icons and local-host URL resolution
+- CPU, memory, storage, uptime, temperature, and power overview
+- Automatic service-health refresh and recent activity history
+- Application management with SQLite persistence and optional Docker/Compose discovery
+- Processor and memory detail views with sortable process tables
 
 ## Run locally
 
@@ -21,8 +20,8 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), then use **Add application** to register a
-service.
+Open [http://localhost:3000](http://localhost:3000), then use the settings control to register a
+service. The first request creates and seeds the SQLite database when it is empty.
 
 ## Run with Docker Compose
 
@@ -30,5 +29,19 @@ service.
 docker compose up -d --build
 ```
 
-The SQLite database is stored in the persistent `nimbus-data` volume. Keep Nimbus behind a trusted
-LAN, VPN, or reverse proxy before exposing it outside your home network.
+The SQLite database is stored in the persistent `nimbus-data` volume. The metrics agent reads host
+process and sysfs data through read-only mounts. Keep Nimbus behind a trusted LAN, VPN, or reverse
+proxy before exposing it outside your home network; health and icon routes make bounded server-side
+requests to configured service URLs.
+
+## Verification
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+`npm test` covers the discovery, validation, database-row, URL, and metrics helpers. Browser smoke
+testing should cover the launcher at desktop and mobile sizes, application management, theme
+switching, and system detail modals.
