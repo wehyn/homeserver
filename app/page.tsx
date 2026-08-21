@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Cpu, Database, Gauge, HardDrive, RefreshCw, Search, Settings2, TriangleAlert } from "lucide-react";
+import { Check, Cpu, Database, HardDrive, RefreshCw, Search, Settings2, Thermometer, TriangleAlert, Zap } from "lucide-react";
 import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib/types";
 import SystemDetailsModal, { type SystemDetailKind } from "@/app/system-details-modal";
-import { ThemeToggle } from "@/app/theme-toggle";
-import { LauncherTile, LauncherWidget } from "@/app/launcher/launcher-components";
+import { LauncherTile, SystemMetric } from "@/app/launcher/launcher-components";
 import { SettingsPanel } from "@/app/launcher/settings-panel";
 import { formatPercent, formatPower, formatTemperature, isAppStatus } from "@/app/launcher/utils";
 
@@ -241,8 +240,6 @@ export default function Home() {
   const cpuValue = overview ? formatPercent(overview.cpu) : "—";
   const memoryValue = overview ? formatPercent(overview.memory) : "—";
   const storageValue = overview ? formatPercent(overview.storage) : "—";
-  const memoryDetail = overviewError ? "System metrics unavailable" : overview ? `${overview.memoryUsed} of ${overview.memoryTotal}` : "Loading";
-  const storageDetail = overviewError ? "System metrics unavailable" : overview ? `${overview.storageUsed} of ${overview.storageTotal}` : "Loading";
   const temperatureValue = overview ? formatTemperature(overview.temperatureC) : "—";
   const powerValue = overview ? formatPower(overview.powerWatts) : "—";
 
@@ -260,11 +257,24 @@ export default function Home() {
   return <main className="launcher">
     <header className="launcher-bar">
       <div className="launcher-clock"><span className="launcher-time">{clockTime || "—"}</span><span className="launcher-date">{clockDate}</span></div>
-      <div className="launcher-actions"><span className="launcher-chip" role="status" aria-label={`System uptime: ${overview?.uptime || "—"}`}><span className="launcher-chip-icon"><Gauge size={12} aria-hidden="true" /></span><span className="launcher-chip-value">{overview?.uptime || "—"}</span></span><button type="button" className="launcher-icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={18} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><ThemeToggle /><button type="button" className="launcher-icon-button" onClick={() => openSettings(null)} aria-label="Application management" title="Application management"><Settings2 size={18} /></button></div>
+      <div className="launcher-actions"><span className="launcher-uptime" role="status" aria-label={`System uptime: ${overview?.uptime || "—"}`}>{overview?.uptime || "—"}</span><button type="button" className="launcher-icon-button" onClick={() => { void refreshOverview(); void refreshHealth(); }} title={overviewError ? "Retry system metrics" : "Refresh metrics and service health"} aria-label={overviewError ? "Retry system metrics" : "Refresh metrics and service health"}><RefreshCw size={22} className={refreshing || overviewRefreshing ? "spin" : ""} /></button><button type="button" className="launcher-icon-button" onClick={() => openSettings(null)} aria-label="Application management" title="Application management"><Settings2 size={22} /></button></div>
     </header>
-    <section className="launcher-body" aria-busy={appsLoading}>
-      <AnimatePresence mode="wait" initial={false}>{launcherContent}</AnimatePresence>
-      <section className="launcher-widgets" aria-label="System status"><LauncherWidget icon={<Cpu size={16} />} label="CPU" value={cpuValue} progress={overview ? overview.cpu : undefined} tone="green" onOpen={() => openSystemDetails("processor")} loading={overviewRefreshing}><div className="launcher-telemetry"><div><span>Package</span><strong>{temperatureValue}</strong></div><div><span>Power</span><strong>{powerValue}</strong></div></div></LauncherWidget><LauncherWidget icon={<Database size={16} />} label="Memory" value={memoryValue} detail={memoryDetail} progress={overview ? overview.memory : undefined} tone="blue" onOpen={() => openSystemDetails("memory")} loading={overviewRefreshing} /><LauncherWidget icon={<HardDrive size={16} />} label="Storage" value={storageValue} detail={storageDetail} progress={overview ? overview.storage : undefined} tone="orange" loading={overviewRefreshing} /></section>
+    <section className="launcher-body">
+      <section className="launcher-system" aria-label="System overview">
+        <div className="system-card" aria-busy={overviewRefreshing}>
+          <div className="system-ring-grid">
+            <SystemMetric icon={<Cpu size={24} />} label="CPU" value={cpuValue} progress={overview?.cpu} tone="green" variant="ring" onOpen={() => openSystemDetails("processor")} loading={overviewRefreshing} />
+            <SystemMetric icon={<Database size={24} />} label="Memory" value={memoryValue} progress={overview?.memory} tone="blue" variant="ring" onOpen={() => openSystemDetails("memory")} loading={overviewRefreshing} />
+          </div>
+          <SystemMetric icon={<HardDrive size={24} />} label="Storage" value={storageValue} progress={overview?.storage} tone="orange" variant="bar" loading={overviewRefreshing} />
+          <div className="system-card-meta">
+            <span><Thermometer size={21} aria-hidden="true" /><strong>{temperatureValue}</strong><span className="system-card-meta-separator">·</span><Zap size={15} aria-hidden="true" /><strong>{powerValue}</strong></span>
+          </div>
+        </div>
+      </section>
+      <section className="launcher-apps" aria-label="Applications" aria-busy={appsLoading}>
+        <AnimatePresence mode="wait" initial={false}>{launcherContent}</AnimatePresence>
+      </section>
     </section>
     <AnimatePresence initial={false}>{settingsOpen && <motion.div key="application-modal" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} activities={activities} editing={editing} deletingId={deletingId} saving={saving} mutationError={mutationError} onRefreshActivity={() => void refreshActivities()} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}</AnimatePresence>
     <AnimatePresence initial={false}>{systemDetails && <SystemDetailsModal key={systemDetails} kind={systemDetails} onClose={closeSystemDetails} />}</AnimatePresence>
