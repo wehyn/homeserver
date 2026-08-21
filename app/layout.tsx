@@ -9,6 +9,12 @@ const dmMono = DM_Mono({ subsets: ["latin"], variable: "--font-dm-mono", display
 export const metadata: Metadata = {
   title: "Nimbus · Home server",
   description: "A calm control room for your self-hosted apps.",
+  applicationName: "Nimbus",
+  openGraph: {
+    title: "Nimbus · Home server",
+    description: "A calm control room for your self-hosted apps.",
+    type: "website",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
