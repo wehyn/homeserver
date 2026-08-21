@@ -11,37 +11,33 @@ export function LauncherTile({ app }: { app: ManagedApp }) {
     setLaunchUrl(resolveAppLaunchUrl(app, window.location.hostname));
   }, [app]);
 
-  return <a className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" title={`${app.name} · ${statusCopy[app.status]}`}>
+  return <a className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" aria-label={app.name} title={`${app.name} · ${statusCopy[app.status]}`}>
     <span className="launcher-iconwrap"><AppIcon app={app} large /></span>
-    <span className="launcher-name">{app.name}</span>
   </a>;
 }
 
-export function LauncherGauge({ percent, children }: { percent?: number; children: ReactNode }) {
-  const radius = 46;
-  const circumference = 2 * Math.PI * radius;
-  const arc = circumference * 0.75;
-  const gap = circumference - arc;
-  const clamped = percent === undefined ? 0 : Math.min(100, Math.max(0, percent));
-
-  return <div className="launcher-gauge">
-    <svg viewBox="0 0 120 120" aria-hidden="true">
-      <circle className="launcher-gauge-track" cx="60" cy="60" r={radius} strokeWidth="11" fill="none" strokeDasharray={`${arc} ${gap}`} transform="rotate(135 60 60)" />
-      {percent !== undefined && <circle className="launcher-gauge-fill" cx="60" cy="60" r={radius} strokeWidth="11" fill="none" strokeLinecap="round" strokeDasharray={`${arc} ${circumference}`} strokeDashoffset={arc * (1 - clamped / 100)} transform="rotate(135 60 60)" />}
-    </svg>
-    <div className="launcher-gauge-value">{children}</div>
-  </div>;
-}
-
-export function LauncherWidget({ icon, label, value, detail, progress, tone, onOpen, loading = false, children }: { icon: ReactNode; label: string; value: string; detail?: string; progress?: number; tone: string; onOpen?: () => void; loading?: boolean; children?: ReactNode }) {
-  const content = <>
-    <div className="launcher-widget-top"><span className={`stat-icon ${tone}`}>{icon}</span><span>{label}</span></div>
-    <div className="launcher-gauge-wrap"><LauncherGauge percent={progress}>{value}</LauncherGauge></div>
-    {detail && <div className="launcher-widget-detail">{detail}</div>}
-    {children}
+export function SystemMetric({ icon, label, value, progress, tone, onOpen, loading = false, variant = "bar" }: { icon: ReactNode; label: string; value: string; progress?: number; tone: "green" | "blue" | "orange"; onOpen?: () => void; loading?: boolean; variant?: "ring" | "bar" }) {
+  const clamped = progress === undefined ? 0 : Math.min(100, Math.max(0, progress));
+  const metricClass = variant === "ring" ? "system-metric-ring" : "system-metric-storage";
+  const content = variant === "ring" ? <>
+    <span className="system-ring-header"><span className={`system-metric-icon ${tone}`}>{icon}</span><span className="system-metric-label">{label}</span></span>
+    <span className="system-ring-wrap" role="progressbar" aria-label={`${label} usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress === undefined ? undefined : Math.round(clamped)}>
+      <svg className={`system-ring-svg ${tone}`} viewBox="0 0 120 120" aria-hidden="true">
+        <circle className="system-ring-track" cx="60" cy="60" r="45" pathLength="100" strokeDasharray="78 22" />
+        <circle className="system-ring-fill" cx="60" cy="60" r="45" pathLength="100" strokeDasharray={`${clamped * .78} ${100 - (clamped * .78)}`} />
+      </svg>
+      <strong className="system-ring-value">{value}</strong>
+    </span>
+  </> : <>
+    <span className={`system-metric-icon ${tone}`}>{icon}</span>
+    <span className="system-metric-label">{label}</span>
+    <strong className="system-metric-value">{value}</strong>
+    <span className="system-meter" role="progressbar" aria-label={`${label} usage`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress === undefined ? undefined : Math.round(clamped)}>
+      <span className={`system-meter-fill ${tone}`} style={{ width: `${clamped}%` }} />
+    </span>
   </>;
 
   return onOpen
-    ? <button type="button" className="launcher-widget launcher-widget-link" onClick={onOpen} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</button>
-    : <div className="launcher-widget" aria-busy={loading}>{content}</div>;
+    ? <button type="button" className={`system-metric ${metricClass} system-metric-link`} onClick={onOpen} aria-label={`View ${label.toLowerCase()} details`} aria-busy={loading}>{content}</button>
+    : <div className={`system-metric ${metricClass}`} aria-busy={loading}>{content}</div>;
 }

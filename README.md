@@ -43,5 +43,5 @@ npm run build
 ```
 
 `npm test` covers the discovery, validation, database-row, URL, and metrics helpers. Browser smoke
-testing should cover the launcher at desktop and mobile sizes, application management, theme
-switching, and system detail modals.
+testing should cover the launcher at desktop and mobile sizes, application management, and system
+detail modals.
