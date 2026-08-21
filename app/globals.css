@@ -76,11 +76,11 @@ h1, h2, h3, p { margin: 0; }
 .launcher-icon-button:hover, .launcher-icon-button:focus-visible { color: var(--text); background: rgba(255, 255, 255, .055); }
 .launcher-icon-button:active { transform: scale(.94); }
 .icon-button { display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-soft); color: var(--muted); transition: color .2s, background .2s, transform .15s, border-color .2s; }
-.launcher-body { position: relative; z-index: 1; width: min(100%, 1100px); margin: 0 auto; padding: clamp(38px, 5vh, 54px) clamp(28px, 3.5vw, 48px) clamp(40px, 5vh, 58px); display: grid; grid-template-columns: minmax(380px, .82fr) minmax(0, 1.55fr); gap: clamp(64px, 5.5vw, 92px); align-items: start; justify-items: center; }
+.launcher-body { position: relative; z-index: 1; width: min(100%, clamp(1100px, 78vw, 1500px)); margin: 0 auto; padding: clamp(38px, 5vh, 54px) clamp(28px, 3.5vw, 48px) clamp(40px, 5vh, 58px); display: grid; grid-template-columns: minmax(380px, .82fr) minmax(0, 1.55fr); gap: clamp(64px, 5.5vw, 112px); align-items: start; justify-items: center; }
 .launcher-apps, .launcher-system { min-width: 0; width: 100%; }
 .launcher-system { display: flex; justify-content: center; }
 .launcher-apps { display: flex; justify-content: center; }
-.launcher-grid { width: min(100%, 680px); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: clamp(16px, 2vw, 30px); row-gap: clamp(34px, 5vh, 48px); align-content: start; }
+.launcher-grid { width: min(100%, clamp(680px, 44vw, 840px)); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: clamp(16px, 2vw, 42px); row-gap: clamp(34px, 5vh, 60px); align-content: start; }
 .launcher-tile-wrap { min-width: 0; }
 .launcher-tile { display: flex; flex-direction: column; align-items: center; min-width: 0; padding: 0; border-radius: 18px; touch-action: manipulation; user-select: none; -webkit-user-select: none; text-align: center; transition: transform .2s; }
 .launcher-tile:hover { transform: translateY(-3px); }
@@ -89,15 +89,15 @@ h1, h2, h3, p { margin: 0; }
 .app-icon { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 11px; color: var(--app-color); display: grid; place-items: center; background: color-mix(in srgb, var(--app-color) 10%, rgba(255, 255, 255, .06)); border: 1px solid color-mix(in srgb, var(--app-color) 20%, transparent); position: relative; overflow: hidden; }
 .app-icon-large { width: 49px; height: 49px; flex-basis: 49px; border-radius: 13px; }
 .app-icon img { width: 55%; height: 55%; object-fit: contain; position: relative; z-index: 2; }
-.launcher-tile .app-icon-large { width: clamp(88px, 7vw, 118px); height: clamp(88px, 7vw, 118px); flex-basis: clamp(88px, 7vw, 118px); border-radius: 17px; border-color: rgba(255, 255, 255, .11); background: rgba(18, 21, 26, .88); box-shadow: 0 10px 24px rgba(0, 0, 0, .16); transition: border-color .2s, background .2s, transform .2s, box-shadow .2s; }
+.launcher-tile .app-icon-large { width: clamp(88px, 7vw, 144px); height: clamp(88px, 7vw, 144px); flex-basis: clamp(88px, 7vw, 144px); border-radius: 17px; border-color: rgba(255, 255, 255, .11); background: rgba(18, 21, 26, .88); box-shadow: 0 10px 24px rgba(0, 0, 0, .16); transition: border-color .2s, background .2s, transform .2s, box-shadow .2s; }
 .launcher-tile .app-icon-large img { width: 59%; height: 59%; filter: none; }
 .launcher-tile .app-icon-large[data-app-id="immich"] img { width: 64%; height: 64%; }
 .launcher-tile .app-icon-large svg { z-index: 2; width: 47%; height: 47%; color: var(--app-color); filter: none; }
 .launcher-tile:hover .app-icon-large { border-color: rgba(255, 255, 255, .2); background: #15181d; box-shadow: 0 14px 30px rgba(0, 0, 0, .22); }
-.system-card { width: min(100%, 400px); overflow: hidden; border: 1px solid rgba(255, 255, 255, .12); border-radius: 17px; background: rgba(17, 20, 25, .9); box-shadow: 0 14px 36px rgba(0, 0, 0, .14); backdrop-filter: blur(10px); }
+.system-card { width: min(100%, clamp(400px, 24vw, 470px)); overflow: hidden; border: 1px solid rgba(255, 255, 255, .12); border-radius: 17px; background: rgba(17, 20, 25, .9); box-shadow: 0 14px 36px rgba(0, 0, 0, .14); backdrop-filter: blur(10px); }
 .system-ring-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-bottom: 1px solid rgba(255, 255, 255, .1); }
 .system-metric { width: 100%; border: 0; background: transparent; color: inherit; text-align: left; }
-.system-metric-ring { min-height: 190px; padding: 18px 13px 16px; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.system-metric-ring { min-height: clamp(190px, 11vw, 220px); padding: 18px 13px 16px; display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .system-metric-ring + .system-metric-ring { border-left: 1px solid rgba(255, 255, 255, .1); }
 .system-metric-storage { min-height: 90px; padding: 18px 20px 17px; display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; column-gap: 11px; row-gap: 11px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
 .system-metric-link { cursor: pointer; transition: background .2s; }
@@ -109,7 +109,7 @@ h1, h2, h3, p { margin: 0; }
 .system-metric-label { color: #e2e4e7; font-size: clamp(14px, 1vw, 16px); font-weight: 500; letter-spacing: -.25px; }
 .system-metric-value { color: #f0f1f3; font: 500 clamp(15px, 1.05vw, 18px) var(--font-dm-mono), monospace; font-variant-numeric: tabular-nums; letter-spacing: -.45px; }
 .system-ring-header { width: 100%; display: flex; align-items: center; gap: 9px; }
-.system-ring-wrap { position: relative; width: clamp(116px, 8.5vw, 132px); aspect-ratio: 1; display: grid; place-items: center; margin: auto 0 0; }
+.system-ring-wrap { position: relative; width: clamp(116px, 8.5vw, 158px); aspect-ratio: 1; display: grid; place-items: center; margin: auto 0 0; }
 .system-ring-svg { width: 100%; height: 100%; overflow: visible; transform: rotate(130deg); }
 .system-ring-track, .system-ring-fill { fill: none; stroke-width: 8; stroke-linecap: round; }
 .system-ring-track { stroke: #2b2e34; }
