@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0d11" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <title>Nimbus · Offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        background: #0b0d11;
+        color: #f2f5f7;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at 50% 10%, rgba(101, 230, 165, 0.1), transparent 34%),
+          #0b0d11;
+      }
+
+      main {
+        width: min(100%, 440px);
+        padding: 36px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 24px;
+        background: rgba(18, 21, 28, 0.94);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+        text-align: center;
+      }
+
+      svg {
+        width: 72px;
+        height: 72px;
+        display: block;
+        margin: 0 auto 24px;
+      }
+
+      p {
+        margin: 12px 0 28px;
+        color: #a8b0bb;
+        line-height: 1.6;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(1.8rem, 8vw, 2.5rem);
+        letter-spacing: -0.04em;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 12px 20px;
+        color: #07110c;
+        background: #65e6a5;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button:focus-visible {
+        outline: 3px solid #80d6ff;
+        outline-offset: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Nimbus">
+        <rect width="64" height="64" rx="16" fill="#0c0e13" />
+        <circle cx="25" cy="32" r="18" fill="#65e6a5" />
+        <circle cx="39" cy="32" r="18" fill="#80d6ff" fill-opacity=".86" />
+      </svg>
+      <h1>Nimbus is offline</h1>
+      <p>The dashboard could not reach your home server. Reconnect and try again when it is available.</p>
+      <button type="button" onclick="window.location.reload()">Try again</button>
+    </main>
+  </body>
+</html>
