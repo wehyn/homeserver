@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpDown, Cpu, Database, RefreshCw, TriangleAlert, X } from "lucide-react";
 import type { CpuProcess, MemoryProcess, MemorySnapshot, ProcessorSnapshot } from "@/lib/types";
+import MetricsHistoryChart from "@/app/metrics-history-chart";
 
 export type SystemDetailKind = "processor" | "memory";
 type SortKey = "name" | "command" | "pid" | "user" | "cpuPercent" | "rssBytes" | "memoryPercent";
@@ -152,6 +153,7 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
       {processorSnapshot?.sampling && <SystemNotice tone="info" icon={<RefreshCw size={16} className="spin" />} title="Sampling CPU usage">The first reading establishes a baseline; the next refresh will be more representative.</SystemNotice>}
       {(processorSnapshot?.partial || memorySnapshot?.partial) && <SystemNotice tone="warning" icon={<TriangleAlert size={16} />} title="Some process details are incomplete">{(processorSnapshot || memorySnapshot)?.warnings.join(" ")}</SystemNotice>}
       {error && <div className="memory-error system-details-error" role="alert"><TriangleAlert size={17} aria-hidden="true" /><div><strong>{title} details unavailable</strong><p>{error}</p><button type="button" className="small-primary" onClick={() => void refresh()}>Try again</button></div></div>}
+      <MetricsHistoryChart metric={kind === "processor" ? "cpu" : "memory"} />
 
       <section className="process-card system-details-process-card">
         <div className="card-heading"><div><div className="section-title-row"><h3>Processes</h3>{snapshot && <span className="count-pill">{snapshot.processes.length}</span>}</div><p>{kind === "processor" ? "CPU percentage is each process’s share of total system CPU." : "Resident set size is the physical RAM currently held by each process."}</p></div>{kind === "processor" ? <Cpu size={18} className="process-heading-icon" /> : <Database size={18} className="process-heading-icon" />}</div>

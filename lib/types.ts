@@ -75,6 +75,15 @@ export type ServerOverview = {
   updatedAt: string;
 };
 
+export type HistoricalMetric = {
+  timestamp: string;
+  cpu: number;
+  memory: number;
+  storage: number;
+  temperatureC: number | null;
+  powerWatts: number | null;
+};
+
 export type MemoryProcess = {
   pid: number;
   name: string;

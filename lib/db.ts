@@ -6,7 +6,7 @@ import path from "node:path";
 import { toDatabaseRow } from "./db-row";
 import { seedApps } from "./seed";
 import type { DockerContainer, DockerContainerState, DockerHealthState } from "./docker-discovery";
-import type { ActivityEvent, ActivityType, AppStatus, ManagedApp } from "./types";
+import type { ActivityEvent, ActivityType, AppStatus, HistoricalMetric, ManagedApp } from "./types";
 
 const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "nimbus.db");
 let database: DatabaseSync | undefined;
@@ -75,6 +75,18 @@ function getDatabase() {
       )
     `);
     database.exec("CREATE INDEX IF NOT EXISTS activities_created_at_idx ON activities (created_at DESC)");
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS metric_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        recorded_at TEXT NOT NULL,
+        cpu REAL NOT NULL,
+        memory REAL NOT NULL,
+        storage REAL NOT NULL,
+        temperature_c REAL,
+        power_watts REAL
+      )
+    `);
+    database.exec("CREATE INDEX IF NOT EXISTS metric_snapshots_recorded_at_idx ON metric_snapshots (recorded_at DESC)");
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
       const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
@@ -203,6 +215,26 @@ export function listActivities(limit = 5): ActivityEvent[] {
     appName: String(row.app_name),
     status: row.status ? row.status as AppStatus : undefined,
     createdAt: String(row.created_at),
+  }));
+}
+
+export function recordMetricSnapshot(snapshot: HistoricalMetric, retentionDays: number) {
+  const database = getDatabase();
+  database.prepare(`INSERT INTO metric_snapshots (recorded_at, cpu, memory, storage, temperature_c, power_watts)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(snapshot.timestamp, snapshot.cpu, snapshot.memory, snapshot.storage, snapshot.temperatureC, snapshot.powerWatts);
+  database.prepare("DELETE FROM metric_snapshots WHERE recorded_at < ?").run(new Date(Date.now() - retentionDays * 86_400_000).toISOString());
+}
+
+export function listMetricSnapshots(since: string): HistoricalMetric[] {
+  const rows = getDatabase().prepare(`SELECT recorded_at, cpu, memory, storage, temperature_c, power_watts
+    FROM metric_snapshots WHERE recorded_at >= ? ORDER BY recorded_at ASC`).all(since) as Record<string, unknown>[];
+  return rows.map((row) => ({
+    timestamp: String(row.recorded_at),
+    cpu: Number(row.cpu),
+    memory: Number(row.memory),
+    storage: Number(row.storage),
+    temperatureC: row.temperature_c === null ? null : Number(row.temperature_c),
+    powerWatts: row.power_watts === null ? null : Number(row.power_watts),
   }));
 }
 
