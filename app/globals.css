@@ -385,3 +385,28 @@ h1, h2, h3, p { margin: 0; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.metrics-history-card { width: 100%; margin: 0 0 13px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .03); box-shadow: none; }
+.metrics-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.metrics-history-header h2 { margin: 2px 0 0; color: #f0f1f3; font-size: 17px; letter-spacing: -.35px; }
+.metrics-history-controls { display: flex; gap: 3px; padding: 3px; border: 1px solid rgba(255, 255, 255, .1); border-radius: 8px; }
+.metrics-history-controls button { border: 0; border-radius: 5px; padding: 5px 7px; background: transparent; color: #858d98; font: 11px var(--font-dm-mono), monospace; cursor: pointer; }
+.metrics-history-controls button.active, .metrics-history-controls button:hover, .metrics-history-controls button:focus-visible { background: rgba(255, 255, 255, .1); color: #f0f1f3; }
+.metrics-history-legend { display: flex; gap: 12px; margin: 18px 0 4px; color: #9ba2ad; font-size: 10px; }
+.metrics-history-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.metrics-history-legend i { width: 7px; height: 7px; border-radius: 50%; }
+.metrics-chart-wrap { position: relative; min-height: 150px; }
+.metrics-chart { width: 100%; height: auto; overflow: visible; }
+.metrics-chart-grid { stroke: rgba(255, 255, 255, .08); stroke-width: 1; }
+.metrics-chart-label { fill: #6e7682; font: 9px var(--font-dm-mono), monospace; }
+.metrics-history-loading { position: absolute; right: 0; top: 3px; display: inline-flex; align-items: center; gap: 5px; color: #89919c; font: 10px var(--font-dm-mono), monospace; }
+.metrics-history-state { min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #858d98; text-align: center; font-size: 12px; }
+.metrics-history-state small { color: #626a75; font-size: 10px; }
+.metrics-history-footer { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; color: #68717d; font: 10px var(--font-dm-mono), monospace; }
+@media (max-width: 900px) {
+  .metrics-history-card { width: 100%; }
+}
+@media (max-width: 640px) {
+  .metrics-history-card { margin-bottom: 10px; padding: 16px 14px 13px; }
+  .metrics-history-footer { font-size: 9px; }
+}

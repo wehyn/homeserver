@@ -3,12 +3,15 @@ import path from "node:path";
 import { statfsSync } from "node:fs";
 import { NextResponse } from "next/server";
 import { HardwareSampler, type HardwareSnapshot } from "@/agent/hardware";
+import { recordMetricSnapshot } from "@/lib/db";
+import { HISTORY_RETENTION_DAYS, shouldRecordSnapshot } from "@/lib/metrics-history";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type CpuTimes = { idle: number; total: number };
 let previousCpuTimes: CpuTimes | undefined;
+let lastHistorySnapshotAt: number | undefined;
 const localHardwareSampler = new HardwareSampler("/sys");
 
 export async function GET() {
@@ -19,7 +22,7 @@ export async function GET() {
   const storage = getStorageUsage();
   const hardware = await getHardwareSnapshot();
 
-  return NextResponse.json({
+  const overview = {
     uptime: formatUptime(os.uptime()),
     cpu,
     cpuCores: os.cpus().length,
@@ -35,7 +38,13 @@ export async function GET() {
     storageTotal: formatBytes(storage.totalBytes),
     network: "Local network",
     updatedAt: new Date().toISOString(),
-  });
+  };
+  const now = Date.now();
+  if (shouldRecordSnapshot(lastHistorySnapshotAt, now)) {
+    recordMetricSnapshot({ timestamp: overview.updatedAt, cpu, memory: overview.memory, storage: overview.storage, temperatureC: hardware.temperatureC, powerWatts: hardware.powerWatts }, HISTORY_RETENTION_DAYS);
+    lastHistorySnapshotAt = now;
+  }
+  return NextResponse.json(overview);
 }
 
 async function getHardwareSnapshot(): Promise<HardwareSnapshot> {
