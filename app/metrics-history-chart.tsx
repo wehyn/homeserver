@@ -13,9 +13,9 @@ const ranges = [
   { minutes: 30, label: "30m" },
 ];
 const series: Array<{ key: MetricKey; label: string; color: string }> = [
-  { key: "cpu", label: "CPU", color: "#78c867" },
-  { key: "memory", label: "Memory", color: "#3da7e6" },
-  { key: "storage", label: "Storage", color: "#edae43" },
+  { key: "cpu", label: "CPU", color: "#a8cf8d" },
+  { key: "memory", label: "Memory", color: "#9aa6b4" },
+  { key: "storage", label: "Storage", color: "#ddb37e" },
 ];
 
 export default function MetricsHistoryChart({ metric }: { metric: "cpu" | "memory" }) {
