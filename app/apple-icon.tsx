@@ -13,7 +13,7 @@ export default function AppleIcon() {
         position: "relative",
         overflow: "hidden",
         borderRadius: 45,
-        background: "#0c0e13",
+        background: "#0f0f10",
       }}
     >
       <div
@@ -24,7 +24,7 @@ export default function AppleIcon() {
           width: 101,
           height: 101,
           borderRadius: "50%",
-          background: "#65e6a5",
+          background: "#a8cf8d",
         }}
       />
       <div
@@ -35,7 +35,7 @@ export default function AppleIcon() {
           width: 101,
           height: 101,
           borderRadius: "50%",
-          background: "#80d6ff",
+          background: "#9aa6b4",
           opacity: 0.86,
         }}
       />

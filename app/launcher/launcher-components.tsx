@@ -19,7 +19,7 @@ export function LauncherTile({ app }: { app: ManagedApp }) {
 
 export function AddApplicationTile({ onAdd }: { onAdd: () => void }) {
   return <button type="button" className="launcher-tile launcher-add-tile" onClick={onAdd} aria-label="Add application" title="Add application">
-    <span className="launcher-iconwrap"><span className="app-icon app-icon-large add-app-icon"><svg className="add-app-border" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><path d="M 18 1 H 82 C 91.4 1 99 8.6 99 18 V 82 C 99 91.4 91.4 99 82 99 H 18 C 8.6 99 1 91.4 1 82 V 18 C 1 8.6 8.6 1 18 1 Z" /></svg><Plus className="add-app-plus" size={42} strokeWidth={1.35} aria-hidden="true" /></span></span>
+    <span className="launcher-iconwrap"><span className="app-icon app-icon-large add-app-icon"><svg className="add-app-border" viewBox="0 0 100 100" aria-hidden="true" focusable="false"><path d="M 18 1 H 82 C 91.4 1 99 8.6 99 18 V 82 C 99 91.4 91.4 99 82 99 H 18 C 8.6 99 1 91.4 1 82 V 18 C 1 8.6 8.6 1 18 1 Z" /></svg><Plus className="add-app-plus" size={32} strokeWidth={1.35} aria-hidden="true" /></span></span>
   </button>;
 }
 

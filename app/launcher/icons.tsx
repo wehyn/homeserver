@@ -2,7 +2,7 @@ import { useEffect, useState, type ComponentProps, type ComponentType, type CSSP
 import { Activity, Cloud, FolderKanban, LayoutGrid, Network, ShieldCheck, Sparkles } from "lucide-react";
 import type { ManagedApp } from "@/lib/types";
 
-const craftyIconUrl = "https://gitlab.com/uploads/-/system/project/avatar/20430749/Crafty_4-0_Logo_square.ico?width=128";
+const craftyIconUrl = "/icons/crafty-controller.ico";
 const defaultBrandIconUrls = new Set([
   "https://cdn.simpleicons.org/immich",
   "https://cdn.simpleicons.org/pihole",
