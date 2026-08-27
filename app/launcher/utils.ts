@@ -15,7 +15,7 @@ export function blankApp(order: number): ManagedApp {
     category: "Productivity",
     url: "",
     icon: "",
-    color: "#65e6a5",
+    color: "#a8cf8d",
     healthUrl: "",
     allowInsecureTls: false,
     status: "unknown",
