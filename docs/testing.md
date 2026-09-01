@@ -45,6 +45,11 @@ manual or scripted smoke coverage. Check both desktop and mobile layouts, includ
 - application add, edit, visibility, and delete flows
 - settings modal focus, Escape, and focus restoration
 - processor and memory detail dialogs
+- CPU and memory history charts with 5m, 15m, and 30m range switching
+- flat, low-variance, high, changing, empty, loading, error, and one-sample chart fixtures
+- chart time labels, latest/low/high values, point details, and the expandable readings table
+- stale history responses being aborted or ignored after range changes and refreshes
+- history chart layout at desktop width and narrow 390px/320px system-detail modals
 - sortable process tables and refresh behavior
 - service health refresh and error states
 - activity history

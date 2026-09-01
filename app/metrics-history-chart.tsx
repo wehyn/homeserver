@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import type { HistoricalMetric } from "@/lib/types";
+import { buildMetricsChart, CHART_HEIGHT, CHART_PLOT, CHART_WIDTH, formatChartTime, type ChartMetric, type MetricsChartData } from "@/lib/metrics-chart";
 
-type MetricKey = "cpu" | "memory" | "storage";
 type MetricHistoryResponse = { minutes: number; points: HistoricalMetric[] };
 
 const ranges = [
@@ -12,86 +12,111 @@ const ranges = [
   { minutes: 15, label: "15m" },
   { minutes: 30, label: "30m" },
 ];
-const series: Array<{ key: MetricKey; label: string; color: string }> = [
-  { key: "cpu", label: "CPU", color: "#a8cf8d" },
-  { key: "memory", label: "Memory", color: "#9aa6b4" },
-  { key: "storage", label: "Storage", color: "#ddb37e" },
-];
+const chartColors: Record<ChartMetric, string> = { cpu: "#b9e394", memory: "#b9c7d8" };
+const metricLabels: Record<ChartMetric, string> = { cpu: "CPU", memory: "Memory" };
 
-export default function MetricsHistoryChart({ metric }: { metric: "cpu" | "memory" }) {
+export default function MetricsHistoryChart({ metric }: { metric: ChartMetric }) {
   const [minutes, setMinutes] = useState(5);
   const [points, setPoints] = useState<HistoricalMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const requestRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef(0);
 
-  const loadHistory = useCallback((signal?: AbortSignal) => {
+  const refresh = useCallback(() => {
+    requestRef.current?.abort();
     const controller = new AbortController();
-    const abort = () => controller.abort();
-    signal?.addEventListener("abort", abort, { once: true });
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    requestRef.current = controller;
     setLoading(true);
-    fetch(`/api/metrics/history?minutes=${minutes}`, { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const data = await response.json() as MetricHistoryResponse & { error?: string };
-        if (!response.ok) throw new Error(data.error || "Unable to load metric history.");
-        setPoints(Array.isArray(data.points) ? data.points : []);
+
+    void fetchMetricHistory(minutes, controller.signal)
+      .then((nextPoints) => {
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+        setPoints(nextPoints);
         setError("");
       })
       .catch((caught) => {
-        if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Unable to load metric history.");
+        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+        setError(caught instanceof Error ? caught.message : "Unable to load metric history.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-        signal?.removeEventListener("abort", abort);
+        if (requestId === requestIdRef.current) {
+          requestRef.current = null;
+          setLoading(false);
+        }
       });
-    return controller;
   }, [minutes]);
 
   useEffect(() => {
-    const request = loadHistory();
-    const interval = window.setInterval(() => {
-      request.abort();
-      loadHistory();
-    }, 30_000);
+    refresh();
+    const interval = window.setInterval(refresh, 30_000);
     return () => {
       window.clearInterval(interval);
-      request.abort();
+      requestRef.current?.abort();
+      requestRef.current = null;
     };
-  }, [loadHistory]);
+  }, [refresh]);
 
-  const chart = useMemo(() => buildChart(points), [points]);
-  const visibleSeries = series.filter((item) => item.key === metric);
+  const chart = useMemo(() => buildMetricsChart(points, metric), [points, metric]);
+  const label = metricLabels[metric];
+  const color = chartColors[metric];
+  const hasPoints = chart.points.length > 0;
 
   return <section className="metrics-history-card" aria-label="Historical system metrics" aria-busy={loading}>
     <div className="metrics-history-header">
-      <div><p className="eyebrow">System history</p><h2>Resource usage</h2></div>
+      <div><p className="eyebrow">System history</p><h2>{label} usage</h2></div>
       <div className="metrics-history-controls" role="group" aria-label="Metric history range">
         {ranges.map((range) => <button key={range.minutes} type="button" className={minutes === range.minutes ? "active" : ""} onClick={() => setMinutes(range.minutes)} aria-pressed={minutes === range.minutes}>{range.label}</button>)}
       </div>
     </div>
-    <div className="metrics-history-legend">{visibleSeries.map((item) => <span key={item.key}><i style={{ backgroundColor: item.color }} />{item.label}</span>)}</div>
-    {error ? <div className="metrics-history-state" role="alert"><TriangleAlert size={18} /><span>{error}</span></div> : !points.length && !loading ? <div className="metrics-history-state"><span>Collecting history…</span><small>Snapshots appear after the first minute.</small></div> : <div className="metrics-chart-wrap">
-      <svg className="metrics-chart" viewBox="0 0 800 220" role="img" aria-label={`${metric === "cpu" ? "CPU" : "Memory"} usage over the last ${formatRange(minutes)}`}>
-        {[0, 25, 50, 75, 100].map((value) => <g key={value}><line x1="0" x2="800" y1={200 - value * 1.8} y2={200 - value * 1.8} className="metrics-chart-grid" /><text x="0" y={196 - value * 1.8} className="metrics-chart-label">{value}%</text></g>)}
-        {visibleSeries.map((item) => <polyline key={item.key} points={chart[item.key]} fill="none" stroke={item.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />)}
-      </svg>
-      {loading && <span className="metrics-history-loading"><RefreshCw size={14} className="spin" /> Updating</span>}
-    </div>}
-    <div className="metrics-history-footer"><span>{points.length ? `${points.length} samples` : "No samples yet"}</span><span>Stored locally · 30-day retention</span></div>
+    {error ? <div className="metrics-history-state" role="alert"><TriangleAlert size={18} /><span>{error}</span></div> : !hasPoints && !loading ? <div className="metrics-history-state"><span>Collecting history…</span><small>Snapshots appear after the first minute.</small></div> : <>
+      {chart.summary && <div className="metrics-history-summary" aria-label={`${label} summary`}>
+        <span><small>Latest</small><strong>{formatPercent(chart.summary.latest)}</strong></span>
+        <span><small>Low</small><strong>{formatPercent(chart.summary.minimum)}</strong></span>
+        <span><small>High</small><strong>{formatPercent(chart.summary.maximum)}</strong></span>
+      </div>}
+      <div className="metrics-chart-wrap">
+        <svg className="metrics-chart" viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} role="img" aria-labelledby={`${metric}-history-title ${metric}-history-description`}>
+          <title id={`${metric}-history-title`}>{label} usage over the last {formatRange(minutes)}</title>
+          <desc id={`${metric}-history-description`}>{chart.summary ? `${chart.points.length} readings. Latest ${formatPercent(chart.summary.latest)}, ranging from ${formatPercent(chart.summary.minimum)} to ${formatPercent(chart.summary.maximum)}.` : "Loading metric readings."}</desc>
+          {buildGridLines(chart).map((line) => <g key={line.value}><line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={line.y} y2={line.y} className="metrics-chart-grid" /><text x={CHART_PLOT.left - 8} y={line.y + 3} textAnchor="end" className="metrics-chart-label">{formatPercent(line.value)}</text></g>)}
+          {hasPoints && <line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={CHART_HEIGHT - CHART_PLOT.bottom} y2={CHART_HEIGHT - CHART_PLOT.bottom} className="metrics-chart-axis" />}
+          {hasPoints && <polyline points={chart.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="metrics-chart-line" />}
+          {chart.points.map((point) => <g key={point.timestamp}><circle cx={point.x} cy={point.y} r="5" fill={color} className="metrics-chart-point"><title>{`${formatChartTime(point.timestamp)} · ${formatPercent(point.value)}`}</title></circle><text x={point.x} y={point.y - 10} textAnchor="middle" className="metrics-chart-point-label">{formatPercent(point.value)}</text></g>)}
+          {chart.timeLabels.map((timeLabel) => <text key={timeLabel.timestamp} x={timeLabel.x} y={CHART_HEIGHT - 14} textAnchor={timeLabel.x === CHART_PLOT.left ? "start" : timeLabel.x === CHART_WIDTH - CHART_PLOT.right ? "end" : "middle"} className="metrics-chart-time-label">{timeLabel.label}</text>)}
+        </svg>
+        {loading && <span className="metrics-history-loading"><RefreshCw size={14} className="spin" /> Updating</span>}
+      </div>
+      {hasPoints && <details className="metrics-history-readings">
+        <summary>View readings</summary>
+        <div className="metrics-history-table-wrap">
+          <table><caption>{label} readings for the last {formatRange(minutes)}</caption><thead><tr><th scope="col">Time</th><th scope="col">Value</th></tr></thead><tbody>{chart.points.map((point) => <tr key={`reading-${point.timestamp}`}><td>{formatChartTime(point.timestamp)}</td><td>{formatPercent(point.value)}</td></tr>)}</tbody></table>
+        </div>
+      </details>}
+    </>}
+    <div className="metrics-history-footer"><span>{hasPoints ? `${chart.points.length} samples` : "No samples yet"}</span><span>Stored locally · 30-day retention</span></div>
   </section>;
+}
+
+function buildGridLines(chart: MetricsChartData) {
+  const values = [chart.scale.minimum, (chart.scale.minimum + chart.scale.maximum) / 2, chart.scale.maximum];
+  const plotHeight = CHART_HEIGHT - CHART_PLOT.top - CHART_PLOT.bottom;
+  return values.map((value) => ({ value, y: CHART_PLOT.top + ((chart.scale.maximum - value) / chart.scale.range) * plotHeight }));
 }
 
 function formatRange(minutes: number) {
   return `${minutes} minutes`;
 }
 
-function buildChart(points: HistoricalMetric[]) {
-  const values = Object.fromEntries(series.map(({ key }) => [key, toPolyline(points, key)])) as Record<MetricKey, string>;
-  return values;
+function formatPercent(value: number) {
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)}%`;
 }
 
-function toPolyline(points: HistoricalMetric[], key: MetricKey) {
-  if (!points.length) return "";
-  const denominator = Math.max(1, points.length - 1);
-  const values = points.map((point, index) => `${(index / denominator) * 800},${200 - Math.min(100, Math.max(0, point[key])) * 1.8}`);
-  return values.length === 1 ? `0,${values[0].split(",")[1]} 800,${values[0].split(",")[1]}` : values.join(" ");
+async function fetchMetricHistory(minutes: number, signal: AbortSignal) {
+  const response = await fetch(`/api/metrics/history?minutes=${minutes}`, { cache: "no-store", signal });
+  const data = await response.json() as MetricHistoryResponse & { error?: string };
+  if (!response.ok) throw new Error(data.error || "Unable to load metric history.");
+  return Array.isArray(data.points) ? data.points : [];
 }
