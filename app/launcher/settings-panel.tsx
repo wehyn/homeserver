@@ -2,13 +2,13 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, Check, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
 import { getAppUrlParts, isHostLocalService, updateAppUrl, type AppUrlProtocol } from "@/lib/app-url";
+import { startActivityClock } from "@/lib/relative-time";
 import type { ActivityEvent, ManagedApp } from "@/lib/types";
 import { AppIcon } from "./icons";
 import { ActivityRow } from "./activity";
 import { statusCopy, blankApp } from "./utils";
 
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
-const ACTIVITY_CLOCK_INTERVAL_MS = 30_000;
 
 type SettingsPanelProps = {
   apps: ManagedApp[];
@@ -58,10 +58,7 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editing, onClose]);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => setActivityNow(Date.now()), ACTIVITY_CLOCK_INTERVAL_MS);
-    return () => window.clearInterval(interval);
-  }, []);
+  useEffect(() => startActivityClock(() => setActivityNow(Date.now())), []);
 
   return <section ref={panelRef} className={`settings-panel${editing ? " details-panel" : ""}`} role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
     <div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">{editing ? "Application details" : "Application management"}</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close application modal"><X size={19} aria-hidden="true" /></button></div>
