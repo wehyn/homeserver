@@ -131,3 +131,17 @@ export function formatChartTime(timestamp: string) {
   if (Number.isNaN(date.getTime())) return "Unknown";
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
+
+export function formatChartReading(point: ChartPoint, formatTime = formatChartTime) {
+  return `${formatTime(point.timestamp)} · ${formatChartPercent(point.value)}`;
+}
+
+export function formatChartSummary(summary: ChartSummary | null) {
+  return summary
+    ? `Latest ${formatChartPercent(summary.latest)}, low ${formatChartPercent(summary.minimum)}, high ${formatChartPercent(summary.maximum)}.`
+    : "No readings available.";
+}
+
+export function formatChartPercent(value: number) {
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)}%`;
+}

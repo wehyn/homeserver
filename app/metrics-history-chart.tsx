@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import type { HistoricalMetric } from "@/lib/types";
-import { buildMetricsChart, CHART_HEIGHT, CHART_PLOT, CHART_WIDTH, formatChartTime, type ChartMetric, type MetricsChartData } from "@/lib/metrics-chart";
+import { buildMetricsChart, CHART_HEIGHT, CHART_PLOT, CHART_WIDTH, formatChartPercent, formatChartReading, formatChartSummary, formatChartTime, type ChartMetric, type MetricsChartData } from "@/lib/metrics-chart";
 import { shouldApplyMetricsHistoryRequest } from "@/lib/metrics-history-request";
 
 type MetricHistoryResponse = { minutes: number; points: HistoricalMetric[] };
@@ -83,19 +83,19 @@ export default function MetricsHistoryChart({ metric }: { metric: ChartMetric })
       <div className="metrics-chart-wrap">
         <svg className="metrics-chart" viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} role="img" aria-labelledby={`${metric}-history-title ${metric}-history-description`}>
           <title id={`${metric}-history-title`}>{label} usage over the last {formatRange(minutes)}</title>
-          <desc id={`${metric}-history-description`}>{chart.summary ? `${chart.points.length} readings. Latest ${formatPercent(chart.summary.latest)}, ranging from ${formatPercent(chart.summary.minimum)} to ${formatPercent(chart.summary.maximum)}.` : "Loading metric readings."}</desc>
-          {buildGridLines(chart).map((line) => <g key={line.value}><line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={line.y} y2={line.y} className="metrics-chart-grid" /><text x={CHART_PLOT.left - 8} y={line.y + 3} textAnchor="end" className="metrics-chart-label">{formatPercent(line.value)}</text></g>)}
+          <desc id={`${metric}-history-description`}>{chart.summary ? `${chart.points.length} readings. ${formatChartSummary(chart.summary)}` : "Loading metric readings."}</desc>
+          <g aria-hidden="true">{buildGridLines(chart).map((line) => <g key={line.value}><line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={line.y} y2={line.y} className="metrics-chart-grid" /><text x={CHART_PLOT.left - 8} y={line.y + 3} textAnchor="end" className="metrics-chart-label">{formatChartPercent(line.value)}</text></g>)}</g>
           {hasPoints && <line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={CHART_HEIGHT - CHART_PLOT.bottom} y2={CHART_HEIGHT - CHART_PLOT.bottom} className="metrics-chart-axis" />}
           {hasPoints && <polyline points={chart.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="metrics-chart-line" />}
-          {chart.points.map((point) => <g key={point.timestamp}><circle cx={point.x} cy={point.y} r="5" fill={color} className="metrics-chart-point"><title>{`${formatChartTime(point.timestamp)} · ${formatPercent(point.value)}`}</title></circle><text x={point.x} y={point.y - 10} textAnchor="middle" className="metrics-chart-point-label">{formatPercent(point.value)}</text></g>)}
+          {chart.points.map((point) => <g key={point.timestamp}><circle cx={point.x} cy={point.y} r="5" fill={color} className="metrics-chart-point"><title>{formatChartReading(point)}</title></circle><text x={point.x} y={point.y - 10} textAnchor="middle" className="metrics-chart-point-label">{formatChartPercent(point.value)}</text></g>)}
           {chart.timeLabels.map((timeLabel) => <text key={timeLabel.timestamp} x={timeLabel.x} y={CHART_HEIGHT - 14} textAnchor={timeLabel.x === CHART_PLOT.left ? "start" : timeLabel.x === CHART_WIDTH - CHART_PLOT.right ? "end" : "middle"} className="metrics-chart-time-label">{timeLabel.label}</text>)}
         </svg>
         {loading && <span className="metrics-history-loading"><RefreshCw size={14} className="spin" /> Updating</span>}
       </div>
-      {hasPoints && <details className="metrics-history-readings">
+      {hasPoints && <details className="metrics-history-readings" open>
         <summary>View readings</summary>
         <div className="metrics-history-table-wrap">
-          <table><caption>{label} readings for the last {formatRange(minutes)}</caption><thead><tr><th scope="col">Time</th><th scope="col">Value</th></tr></thead><tbody>{chart.points.map((point) => <tr key={`reading-${point.timestamp}`}><td>{formatChartTime(point.timestamp)}</td><td>{formatPercent(point.value)}</td></tr>)}</tbody></table>
+          <table><caption>{label} readings for the last {formatRange(minutes)}. {formatChartSummary(chart.summary)}</caption><thead><tr><th scope="col">Time</th><th scope="col">Value</th></tr></thead><tbody>{chart.points.map((point) => <tr key={`reading-${point.timestamp}`}><td>{formatChartTime(point.timestamp)}</td><td>{formatChartPercent(point.value)}</td></tr>)}</tbody></table>
         </div>
       </details>}
     </>}
