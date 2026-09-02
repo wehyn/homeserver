@@ -7,7 +7,9 @@ import type { ActivityEvent, AppStatus, ManagedApp, ServerOverview } from "@/lib
 import SystemDetailsModal, { type SystemDetailKind } from "@/app/system-details-modal";
 import { AddApplicationTile, LauncherTile, SystemMetric } from "@/app/launcher/launcher-components";
 import { SettingsPanel } from "@/app/launcher/settings-panel";
-import { blankApp, formatPercent, formatPower, formatTemperature, isAppStatus } from "@/app/launcher/utils";
+import { blankApp, formatPercent, formatPower, formatTemperature } from "@/app/launcher/utils";
+import { fetchHealthStatus } from "@/lib/health-client";
+import { applyHealthResults } from "@/lib/health-results";
 
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
@@ -23,6 +25,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [overviewRefreshing, setOverviewRefreshing] = useState(true);
   const [overviewError, setOverviewError] = useState("");
+  const [healthError, setHealthError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [mutationError, setMutationError] = useState("");
@@ -167,17 +170,18 @@ export default function Home() {
     activeHealthRefreshesRef.current += 1;
     setRefreshing(true);
     try {
-      const results = await Promise.all(checkedApps.map(async (app) => {
-        const response = await fetch(`/api/health?id=${encodeURIComponent(app.id)}`, { signal: controller.signal }).catch(() => null);
-        const result = response ? await response.json().catch(() => ({ status: "unknown" })) : { status: "unknown" };
-        return { id: app.id, status: isAppStatus(result.status) ? result.status : "unknown" as AppStatus };
+      const results = await Promise.allSettled(checkedApps.map(async (app) => {
+        const result = await fetchHealthStatus(`/api/health?id=${encodeURIComponent(app.id)}`, { signal: controller.signal });
+        return { id: app.id, target: app.healthUrl || app.url, result };
       }));
       if (controller.signal.aborted || refreshVersion !== healthRefreshVersionRef.current) return;
-      setApps((current) => current.map((app) => {
-        const result = results.find((item) => item.id === app.id);
-        return result ? { ...app, status: result.status } : app;
-      }));
-      void refreshActivities();
+      const failedResults = results.filter((result) => result.status === "rejected" || (result.status === "fulfilled" && result.value.result.kind !== "valid"));
+      setHealthError(failedResults.length ? `${failedResults.length} service health check${failedResults.length === 1 ? "" : "s"} failed; showing the last known status.` : "");
+      const validResults = results.flatMap((result) => result.status === "fulfilled" && result.value.result.kind === "valid"
+        ? [{ id: result.value.id, target: result.value.target, status: result.value.result.response.status }]
+        : []);
+      setApps((current) => applyHealthResults(current, validResults, checkedApps));
+      if (results.some((result) => result.status === "fulfilled" && result.value.result.kind === "valid")) void refreshActivities();
     } finally {
       activeHealthRefreshesRef.current -= 1;
       const isCurrentRequest = healthRequestRef.current === controller;
