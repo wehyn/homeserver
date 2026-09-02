@@ -5,10 +5,12 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Nimbus",
     short_name: "Nimbus",
     description: "A calm control room for your self-hosted apps.",
+    lang: "en",
     id: "/",
     start_url: "/",
     scope: "/",
     display: "standalone",
+    orientation: "any",
     background_color: "#0f0f10",
     theme_color: "#0f0f10",
     icons: [
@@ -23,6 +25,12 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
+      },
+      {
+        src: "/icon-maskable-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
   };

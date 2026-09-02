@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/generate-sw.mjs",
     "build": "next build",
     "build:agent": "tsc -p agent/tsconfig.json",
     "start": "next start",
