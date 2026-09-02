@@ -7,6 +7,7 @@ import type { ActivityEvent, ManagedApp } from "@/lib/types";
 import { AppIcon } from "./icons";
 import { ActivityRow } from "./activity";
 import { statusCopy, blankApp } from "./utils";
+import { getFocusableElements } from "@/app/modal-focus.tsx";
 
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
@@ -38,15 +39,17 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) return;
-      const focusableElements = Array.from(panelRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex=\"-1\"])")
-      );
+      const focusableElements = getFocusableElements(panelRef.current);
       if (!focusableElements.length) {
         event.preventDefault();
         return;
       }
       const first = focusableElements[0];
       const last = focusableElements[focusableElements.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (document.activeElement !== first && document.activeElement !== last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -104,8 +107,9 @@ function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: Mana
   }
 
   useEffect(() => {
+    setForm(app);
     setCurrentHost(window.location.hostname);
-  }, []);
+  }, [app.id]);
 
   return <form className="app-form" onSubmit={handleSubmit}>
     <button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button>

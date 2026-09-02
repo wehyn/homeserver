@@ -6,6 +6,7 @@ import { ArrowUpDown, Cpu, Database, RefreshCw, TriangleAlert, X } from "lucide-
 import { getNextProcessSortDirection, getProcessSortButtonLabel, getProcessTableCaption } from "@/lib/system-details-accessibility";
 import type { CpuProcess, MemoryProcess, MemorySnapshot, ProcessorSnapshot } from "@/lib/types";
 import MetricsHistoryChart from "@/app/metrics-history-chart";
+import { getFocusableElements } from "@/app/modal-focus.tsx";
 
 export type SystemDetailKind = "processor" | "memory";
 type SortKey = "name" | "command" | "pid" | "user" | "cpuPercent" | "rssBytes" | "memoryPercent";
@@ -84,14 +85,17 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) return;
-      const focusableElements = Array.from(panelRef.current.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex=\"-1\"])")).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      const focusableElements = getFocusableElements(panelRef.current).filter((element) => element.getAttribute("aria-hidden") !== "true");
       if (!focusableElements.length) {
         event.preventDefault();
         return;
       }
       const first = focusableElements[0];
       const last = focusableElements[focusableElements.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      if (document.activeElement !== first && document.activeElement !== last) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && document.activeElement === last) {

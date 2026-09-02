@@ -11,6 +11,10 @@ import { blankApp, formatPercent, formatPower, formatTemperature } from "@/app/l
 import { fetchHealthStatus } from "@/lib/health-client";
 import { applyHealthResults } from "@/lib/health-results";
 
+function OfflineBanner({ onRetry }: { onRetry: () => void }) {
+  return <div className="offline-banner" role="status" aria-live="polite"><TriangleAlert size={16} aria-hidden="true" /><span>You’re offline. Showing the last successful data.</span><button type="button" className="small-primary" onClick={onRetry}>Retry</button></div>;
+}
+
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
 
 export default function Home() {
@@ -26,6 +30,8 @@ export default function Home() {
   const [overviewRefreshing, setOverviewRefreshing] = useState(true);
   const [overviewError, setOverviewError] = useState("");
   const [healthError, setHealthError] = useState("");
+  const [isOnline, setIsOnline] = useState<boolean | null>(null);
+  const overviewRef = useRef<ServerOverview | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [mutationError, setMutationError] = useState("");
@@ -40,6 +46,9 @@ export default function Home() {
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
   const systemDetailsTriggerRef = useRef<HTMLElement | null>(null);
   const appsRef = useRef(apps);
+  const loadAppsRef = useRef<(() => void) | null>(null);
+  const refreshOverviewRef = useRef<(() => void) | null>(null);
+  const refreshHealthRef = useRef<(() => void) | null>(null);
   appsRef.current = apps;
 
   const openSettings = useCallback((nextEditing: ManagedApp | null) => {
@@ -104,12 +113,17 @@ export default function Home() {
       const data = response ? await response.json().catch(() => ({})) as { apps?: ManagedApp[]; error?: string } : {};
       if (!response?.ok || !Array.isArray(data.apps)) throw new Error(data.error || "Unable to load applications.");
       setApps(data.apps);
+      setAppsError("");
     } catch (caught) {
-      setAppsError(caught instanceof Error ? caught.message : "Unable to load applications.");
+      if (!appsRef.current.length) setAppsError(caught instanceof Error ? caught.message : "Unable to load applications.");
     } finally {
       setAppsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    loadAppsRef.current = loadApps;
+  }, [loadApps]);
 
   useEffect(() => {
     void loadApps();
@@ -141,14 +155,19 @@ export default function Home() {
       if (!response?.ok) throw new Error("Unable to load system overview.");
       const data = await response.json() as ServerOverview;
       setOverview(data);
+      overviewRef.current = data;
       setOverviewError("");
     } catch (caught) {
-      if (!controller.signal.aborted) setOverviewError(caught instanceof Error ? caught.message : "Unable to load system overview.");
+      if (!controller.signal.aborted && !overviewRef.current) setOverviewError(caught instanceof Error ? caught.message : "Unable to load system overview.");
     } finally {
       if (overviewRequestRef.current === controller) overviewRequestRef.current = null;
       if (!controller.signal.aborted) setOverviewRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    refreshOverviewRef.current = refreshOverview;
+  }, [refreshOverview]);
 
   useEffect(() => {
     void refreshOverview();
@@ -189,6 +208,27 @@ export default function Home() {
       if (!controller.signal.aborted || !isCurrentRequest) setRefreshing(activeHealthRefreshesRef.current > 0);
     }
   }, [refreshActivities]);
+
+  useEffect(() => {
+    refreshHealthRef.current = refreshHealth;
+  }, [refreshHealth]);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    const handleOnline = () => {
+      setIsOnline(true);
+      void loadAppsRef.current?.();
+      void refreshOverviewRef.current?.();
+      void refreshHealthRef.current?.();
+    };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [loadApps, refreshOverview, refreshHealth]);
 
   useEffect(() => {
     if (appsLoading) return;
@@ -280,6 +320,8 @@ export default function Home() {
     </section>
     <AnimatePresence initial={false}>{settingsOpen && <motion.div key="application-modal" className="panel-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition} onClick={closeSettings}><SettingsPanel apps={apps} activities={activities} editing={editing} deletingId={deletingId} saving={saving} mutationError={mutationError} onRefreshActivity={() => void refreshActivities()} onClose={closeSettings} onEdit={setEditing} onSave={saveApp} onDelete={deleteApp} /></motion.div>}</AnimatePresence>
     <AnimatePresence initial={false}>{systemDetails && <SystemDetailsModal key={systemDetails} kind={systemDetails} onClose={closeSystemDetails} />}</AnimatePresence>
+    {healthError && <div className="toast toast-error" role="status" aria-live="polite"><TriangleAlert size={16} aria-hidden="true" />{healthError}</div>}
+    {isOnline === false && <OfflineBanner onRetry={() => { void loadApps(); void refreshOverview(); void refreshHealth(); }} />}
     {savedNotice && <div className="toast" role="status"><Check size={16} aria-hidden="true" />Changes saved</div>}
     {mutationError && !settingsOpen && <div className="toast toast-error" role="alert"><TriangleAlert size={16} aria-hidden="true" />{mutationError}</div>}
   </main>;
