@@ -2,6 +2,7 @@ import http from "node:http";
 import https from "node:https";
 import { NextResponse } from "next/server";
 import { findApp } from "@/lib/db";
+import { validateRasterIcon } from "@/lib/icon-validation";
 
 export const runtime = "nodejs";
 
@@ -35,8 +36,10 @@ export async function GET(request: Request) {
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
       try {
-        const icon = await requestResource(new URL(candidate), allowInsecureTls, remaining);
-        const contentType = getImageContentType(icon.contentType, new URL(candidate));
+        const candidateUrl = new URL(candidate);
+        if (candidateUrl.origin !== target.origin) continue;
+        const icon = await requestResource(candidateUrl, allowInsecureTls, remaining);
+        const contentType = validateRasterIcon(icon.body, icon.contentType);
         if (contentType) return iconResponse(icon.body, contentType);
       } catch {
         // Try the next declared or conventional icon path.
@@ -55,6 +58,7 @@ function iconResponse(body: Buffer, contentType: string) {
     headers: {
       "Cache-Control": "private, max-age=300",
       "Content-Type": contentType,
+      "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
       "X-Content-Type-Options": "nosniff",
     },
   });
@@ -132,16 +136,4 @@ function extractIconUrls(body: Buffer, base: URL) {
 function readAttribute(tag: string, name: string) {
   const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
   return match?.[1] || match?.[2] || match?.[3];
-}
-
-function getImageContentType(contentType: string, target: URL) {
-  const normalized = contentType.split(";", 1)[0].trim().toLowerCase();
-  if (normalized.startsWith("image/")) return normalized;
-  if (normalized && normalized !== "application/octet-stream") return "";
-  const path = target.pathname.toLowerCase();
-  if (path.endsWith(".ico")) return "image/x-icon";
-  if (path.endsWith(".png")) return "image/png";
-  if (path.endsWith(".svg")) return "image/svg+xml";
-  if (path.endsWith(".webp")) return "image/webp";
-  return "";
 }
