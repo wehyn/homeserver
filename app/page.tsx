@@ -31,6 +31,8 @@ export default function Home() {
   const [overviewError, setOverviewError] = useState("");
   const [healthError, setHealthError] = useState("");
   const [isOnline, setIsOnline] = useState<boolean | null>(null);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const motionTransition = reducedMotion ? { duration: 0 } : { duration: 0.2, ease: "easeOut" as const };
   const overviewRef = useRef<ServerOverview | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -231,6 +233,14 @@ export default function Home() {
       window.removeEventListener("offline", handleOffline);
     };
   }, [loadApps, refreshOverview, refreshHealth]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updateMotionPreference = () => setReducedMotion(mediaQuery.matches);
+    updateMotionPreference();
+    mediaQuery.addEventListener?.("change", updateMotionPreference);
+    return () => mediaQuery.removeEventListener?.("change", updateMotionPreference);
+  }, []);
 
   useEffect(() => {
     if (appsLoading) return;
