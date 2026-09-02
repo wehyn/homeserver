@@ -51,7 +51,8 @@ export function validateHealthResponse(response: Pick<Response, "ok" | "status">
   if (payload.latency !== undefined && (!isFiniteNumber(payload.latency) || payload.latency < 0)) {
     return { kind: "malformed", message: "Health API returned an invalid response." };
   }
-  if (payload.statusCode !== undefined && (!Number.isInteger(payload.statusCode) || payload.statusCode < 100 || payload.statusCode > 599)) {
+  const statusCode = payload.statusCode;
+  if (statusCode !== undefined && !isValidStatusCode(statusCode)) {
     return { kind: "malformed", message: "Health API returned an invalid response." };
   }
   return {
@@ -59,7 +60,7 @@ export function validateHealthResponse(response: Pick<Response, "ok" | "status">
     response: {
       status: payload.status as AppStatus,
       ...(payload.latency === undefined ? {} : { latency: payload.latency }),
-      ...(payload.statusCode === undefined ? {} : { statusCode: payload.statusCode }),
+      ...(statusCode === undefined ? {} : { statusCode }),
     },
   };
 }
@@ -77,4 +78,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isValidStatusCode(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 100 && Number(value) <= 599;
 }
