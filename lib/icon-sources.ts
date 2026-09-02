@@ -47,7 +47,7 @@ function normalizeIconUrl(iconUrl: string) {
   return legacyColorizedIconUrls[iconUrl] || iconUrl;
 }
 
-function getCustomIconUrl(app: ManagedApp) {
+function getCustomIconUrl(app: Pick<ManagedApp, "id" | "name" | "icon">) {
   const iconUrl = normalizeIconUrl(app.icon?.trim() || "");
   if (!iconUrl || !isFaviconFirstApp(app)) return iconUrl;
   return defaultBrandIconUrls.has(iconUrl) ? "" : iconUrl;

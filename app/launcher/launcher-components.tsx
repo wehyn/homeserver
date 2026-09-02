@@ -1,4 +1,5 @@
 import { resolveAppLaunchUrl } from "@/lib/app-url";
+import type { ReactNode } from "react";
 import type { ManagedApp } from "@/lib/types";
 import { Plus } from "lucide-react";
 import { AppIcon } from "./icons";

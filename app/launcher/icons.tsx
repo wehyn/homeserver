@@ -1,7 +1,7 @@
 import { Activity, Cloud, FolderKanban, LayoutGrid, Network, ShieldCheck, Sparkles } from "lucide-react";
 import { useState, type ComponentProps, type ComponentType, type CSSProperties } from "react";
 import type { ManagedApp } from "@/lib/types";
-import { getIconSources } from "./icon-sources";
+import { getIconSources } from "@/lib/icon-sources";
 
 const iconPalette: Record<string, ComponentType<ComponentProps<typeof Cloud>>> = {
   "crafty-controller": GamepadIcon,
