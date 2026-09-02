@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowUpDown, Cpu, Database, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { getNextProcessSortDirection, getProcessSortButtonLabel, getProcessTableCaption } from "@/lib/system-details-accessibility";
 import type { CpuProcess, MemoryProcess, MemorySnapshot, ProcessorSnapshot } from "@/lib/types";
 import MetricsHistoryChart from "@/app/metrics-history-chart";
 
@@ -157,11 +158,40 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
 
       <section className="process-card system-details-process-card">
         <div className="card-heading"><div><div className="section-title-row"><h3>Processes</h3>{snapshot && <span className="count-pill">{snapshot.processes.length}</span>}</div><p>{kind === "processor" ? "CPU percentage is each process’s share of total system CPU." : "Resident set size is the physical RAM currently held by each process."}</p></div>{kind === "processor" ? <Cpu size={18} className="process-heading-icon" /> : <Database size={18} className="process-heading-icon" />}</div>
-        {!snapshot && !error ? <div className="process-state" role="status" aria-live="polite"><RefreshCw size={20} className="spin" aria-hidden="true" /><span>Reading host processes…</span></div> : error && !snapshot ? <div className="process-state"><TriangleAlert size={20} aria-hidden="true" /><span>Metrics agent unavailable. Use Try again to retry.</span></div> : processes.length ? <div className="process-table-wrap"><table className={`process-table${kind === "processor" ? " processor-table" : ""}`}><thead><tr>{(Object.keys(sortLabels) as SortKey[]).map((key) => <th key={key} aria-sort={sortKey === key ? (descending ? "descending" : "ascending") : "none"}><button type="button" onClick={() => changeSort(key)}>{sortLabels[key]}<ArrowUpDown size={13} /></button></th>)}</tr></thead><tbody>{processes.map((process) => <tr key={process.pid}><td><strong>{process.name}</strong></td><td className="process-command" title={process.command}>{process.command}</td><td className="mono-cell">{process.pid}</td><td>{process.user}</td>{kind === "processor" && <td className="value-cell">{formatPercent((process as CpuProcess).cpuPercent)}</td>}<td className="value-cell">{formatBytes(process.rssBytes)}</td><td className="value-cell">{formatPercent(process.memoryPercent)}</td></tr>)}</tbody></table></div> : <div className="process-state"><Database size={20} aria-hidden="true" /><span>No readable processes were returned.</span></div>}
+        {!snapshot && !error ? <div className="process-state" role="status" aria-live="polite"><RefreshCw size={20} className="spin" aria-hidden="true" /><span>Reading host processes…</span></div> : error && !snapshot ? <div className="process-state"><TriangleAlert size={20} aria-hidden="true" /><span>Metrics agent unavailable. Use Try again to retry.</span></div> : processes.length ? <ProcessTable kind={kind} title={title} processes={processes} sortKey={sortKey} descending={descending} sortLabels={sortLabels} changeSort={changeSort} /> : <div className="process-state"><Database size={20} aria-hidden="true" /><span>No readable processes were returned.</span></div>}
       </section>
       <div className="system-details-footer"><span><span className="sync-dot" />Live · refreshes every 5 sec</span><span>Connected locally</span></div>
     </section>
   </motion.div>;
+}
+
+function ProcessTable({
+  kind,
+  title,
+  processes,
+  sortKey,
+  descending,
+  sortLabels,
+  changeSort,
+}: {
+  kind: SystemDetailKind;
+  title: string;
+  processes: Array<CpuProcess | MemoryProcess>;
+  sortKey: SortKey;
+  descending: boolean;
+  sortLabels: Partial<Record<SortKey, string>>;
+  changeSort: (nextKey: SortKey) => void;
+}) {
+  return <div className="process-table-wrap"><table className={`process-table${kind === "processor" ? " processor-table" : ""}`}>
+    <caption className="visually-hidden">{getProcessTableCaption(title, sortLabels[sortKey] ?? sortKey, descending ? "descending" : "ascending")}</caption>
+    <thead><tr>{(Object.keys(sortLabels) as SortKey[]).map((key) => {
+      const field = sortLabels[key] ?? key;
+      const currentDirection = sortKey === key ? descending ? "descending" : "ascending" : null;
+      const nextDirection = getNextProcessSortDirection({ label: field, numeric: key === "cpuPercent" || key === "rssBytes" || key === "memoryPercent" }, sortKey === key, descending);
+      return <th key={key} aria-sort={sortKey === key ? (descending ? "descending" : "ascending") : "none"}><button type="button" onClick={() => changeSort(key)} aria-label={getProcessSortButtonLabel(field, currentDirection, nextDirection)}>{field}<ArrowUpDown size={13} aria-hidden="true" /></button></th>;
+    })}</tr></thead>
+    <tbody>{processes.map((process) => <tr key={process.pid}><td><strong>{process.name}</strong></td><td className="process-command" title={process.command}>{process.command}</td><td className="mono-cell">{process.pid}</td><td>{process.user}</td>{kind === "processor" && <td className="value-cell">{formatPercent((process as CpuProcess).cpuPercent)}</td>}<td className="value-cell">{formatBytes(process.rssBytes)}</td><td className="value-cell">{formatPercent(process.memoryPercent)}</td></tr>)}</tbody>
+  </table></div>;
 }
 
 function SystemSummary({ label, value, detail, tone, icon }: { label: string; value: string; detail: string; tone: string; icon: React.ReactNode }) {
