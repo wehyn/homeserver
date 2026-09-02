@@ -4,7 +4,7 @@
 
 **Goal:** Make the Browser regression GitHub Actions job wait for the local Next.js server using a command available in the repository's installed toolchain.
 
-**Root cause:** The workflow first starts Next.js manually, then invokes `npx playwright wait-for-server`, a CLI command that does not exist in the installed Playwright version. After replacing that command, Playwright's `webServer` configuration would also try to start a second server in CI because `reuseExistingServer` is disabled there.
+**Root cause:** The workflow first starts Next.js manually, then invokes `npx playwright wait-for-server`, a CLI command that does not exist in the installed Playwright version. Starting the app manually is unnecessary because Playwright's `webServer` configuration already owns the server lifecycle.
 
 **Approach:** Keep one owner for browser-server lifecycle: let `playwright.config.ts` start and wait for Next.js. Remove the duplicate workflow startup and unavailable wait command rather than weakening CI reuse settings.
 
