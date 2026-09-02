@@ -41,7 +41,8 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        if (editing) onEdit(null);
+        else onClose();
         return;
       }
       if (event.key !== "Tab") return;
@@ -70,7 +71,7 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
       document.removeEventListener("keydown", handleKeyDown);
       window.setTimeout(() => previousActiveElementRef.current?.focus(), 220);
     };
-  }, [editing, onClose]);
+  }, [editing, onClose, onEdit]);
 
   useEffect(() => startActivityClock(() => setActivityNow(Date.now())), []);
 

@@ -41,10 +41,10 @@ const historyPoints = [
   { timestamp: "2026-09-02T11:58:00.000Z", cpu: 13.1, memory: 38.2, storage: 42, temperatureC: null, powerWatts: null },
 ];
 
-async function installDashboardFixtures(page: import("@playwright/test").Page) {
+async function installDashboardFixtures(page: import("@playwright/test").Page, fixtureApps = apps) {
   await page.route("**/api/apps", async (route) => {
-    if (route.request().method() === "GET") return route.fulfill({ json: { apps, docker: { available: false, status: "unavailable", warnings: [], updatedAt: null } } });
-    return route.fulfill({ json: { app: apps[0] } });
+    if (route.request().method() === "GET") return route.fulfill({ json: { apps: fixtureApps, docker: { available: false, status: "unavailable", warnings: [], updatedAt: null } } });
+    return route.fulfill({ json: { app: fixtureApps[0] } });
   });
   await page.route("**/api/activity", (route) => route.fulfill({ json: { activities: [] } }));
   await page.route("**/api/overview", (route) => route.fulfill({ json: overview }));
@@ -88,15 +88,17 @@ test.describe("dashboard browser regressions", () => {
   });
 
   test("keeps responsive Web UI controls usable at phone widths", async ({ page }) => {
-    await installDashboardFixtures(page);
+    const hostLocalApp = { ...apps[0], dockerProject: "demo", dockerService: "web", url: "http://localhost:8080" };
+    await installDashboardFixtures(page, [hostLocalApp]);
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });
       await page.goto("/");
       await page.getByRole("button", { name: "Application management" }).click();
-      await page.getByRole("button", { name: "Add", exact: true }).click();
-      await expect(page.locator("#app-new-url-protocol")).toBeVisible();
-      await expect(page.locator("#app-new-url-port")).toBeVisible();
-      await expect(page.locator("body")).toHaveCSS("overflow-x", "hidden");
+      await page.getByRole("button", { name: "Edit Demo service" }).click();
+      await expect(page.locator("#app-demo-url-protocol")).toBeVisible();
+      await expect(page.locator("#app-demo-url-host")).toBeVisible();
+      await expect(page.locator("#app-demo-url-port")).toBeVisible();
+      await expect(page.locator("main.launcher")).toHaveCSS("overflow-x", "hidden");
       await page.getByRole("button", { name: "Close application modal" }).click();
     }
   });
