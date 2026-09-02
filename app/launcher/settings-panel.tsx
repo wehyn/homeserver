@@ -25,6 +25,10 @@ type SettingsPanelProps = {
   onDelete: (id: string) => void;
 };
 
+function appFieldId(appId: string, field: string) {
+  return `app-${appId}-${field}`;
+}
+
 export function SettingsPanel({ apps, activities, editing, deletingId, saving, mutationError, onRefreshActivity, onClose, onEdit, onSave, onDelete }: SettingsPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -86,6 +90,15 @@ function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: Mana
   const urlParts = getAppUrlParts(form.url);
   const hostLocalService = isHostLocalService(form);
   const automaticHost = currentHost || urlParts?.host || "";
+  const titleId = appFieldId(form.id, "title");
+  const urlId = appFieldId(form.id, "url");
+  const descriptionId = appFieldId(form.id, "description");
+  const iconId = appFieldId(form.id, "icon");
+  const healthUrlId = appFieldId(form.id, "health-url");
+  const projectId = appFieldId(form.id, "compose-project");
+  const serviceId = appFieldId(form.id, "compose-service");
+  const tlsId = appFieldId(form.id, "tls");
+  const favoriteId = appFieldId(form.id, "favorite");
   const update = (key: keyof ManagedApp, value: string | boolean) => setForm((current) => ({ ...current, [key]: value }));
   const updateWebUi = (protocol: AppUrlProtocol, port: string) => {
     if (!automaticHost) return;
@@ -114,15 +127,15 @@ function AppForm({ app, isNew, saving, onCancel, onSave, onDelete }: { app: Mana
   return <form className="app-form" onSubmit={handleSubmit}>
     <button type="button" className="back-button" onClick={onCancel}>← <span>All applications</span></button>
     <div className="form-title"><AppIcon app={form} large /><div><p className="eyebrow">{isNew ? "New service" : "Edit service"}</p><h3>{isNew ? "Add application" : form.name}</h3></div></div>
-    <label>Title<input required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label>
-    {hostLocalService ? <div className="web-ui-editor"><div className="web-ui-fields"><label>Protocol<select value={urlParts?.protocol || "http"} onChange={(event) => updateWebUi(event.target.value as AppUrlProtocol, urlParts?.port || "")}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label><label className="web-ui-host">IP<input value={automaticHost} readOnly aria-readonly="true" /></label><label>Port<input required type="number" min="1" max="65535" inputMode="numeric" value={urlParts?.port || ""} onChange={(event) => updateWebUi(urlParts?.protocol || "http", event.target.value)} /></label></div></div> : <div className="web-ui-editor"><input required type="url" aria-label="Application URL" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></div>}
-    <label>Description<input value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label>
-    <label>Icon URL <span className="optional">optional</span><input type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label>
-    <label>Health URL <span className="optional">optional</span><input type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label>
-    <div className="form-columns form-columns-equal"><label>Compose project <span className="optional">optional</span><input value={form.dockerProject || ""} onChange={(event) => update("dockerProject", event.target.value)} placeholder="project-name" /></label><label>Compose service <span className="optional">optional</span><input value={form.dockerService || ""} onChange={(event) => update("dockerService", event.target.value)} placeholder="service-name" /></label></div>
+    <label htmlFor={titleId}>Title<input id={titleId} required value={form.name} onChange={(event) => update("name", event.target.value)} placeholder="My application" /></label>
+    {hostLocalService ? <div className="web-ui-editor"><div className="web-ui-fields"><label htmlFor={`${urlId}-protocol`}>Protocol<select id={`${urlId}-protocol`} value={urlParts?.protocol || "http"} onChange={(event) => updateWebUi(event.target.value as AppUrlProtocol, urlParts?.port || "")}><option value="http">HTTP</option><option value="https">HTTPS</option></select></label><label className="web-ui-host" htmlFor={`${urlId}-host`}>IP<input id={`${urlId}-host`} value={automaticHost} readOnly aria-readonly="true" /></label><label htmlFor={`${urlId}-port`}>Port<input id={`${urlId}-port`} required type="number" min="1" max="65535" inputMode="numeric" value={urlParts?.port || ""} onChange={(event) => updateWebUi(urlParts?.protocol || "http", event.target.value)} /></label></div></div> : <div className="web-ui-editor"><label className="visually-hidden" htmlFor={urlId}>Application URL</label><input id={urlId} required type="url" value={form.url} onChange={(event) => update("url", event.target.value)} placeholder="https://app.local" /></div>}
+    <label htmlFor={descriptionId}>Description<input id={descriptionId} value={form.description} onChange={(event) => update("description", event.target.value)} placeholder="What is this for?" /></label>
+    <label htmlFor={iconId}>Icon URL <span className="optional">optional</span><input id={iconId} type="url" value={form.icon || ""} onChange={(event) => update("icon", event.target.value)} placeholder="Leave blank to use app favicon" /></label>
+    <label htmlFor={healthUrlId}>Health URL <span className="optional">optional</span><input id={healthUrlId} type="url" value={form.healthUrl || ""} onChange={(event) => update("healthUrl", event.target.value)} placeholder="https://.../health" /></label>
+    <div className="form-columns form-columns-equal"><label htmlFor={projectId}>Compose project <span className="optional">optional</span><input id={projectId} value={form.dockerProject || ""} onChange={(event) => update("dockerProject", event.target.value)} placeholder="project-name" /></label><label htmlFor={serviceId}>Compose service <span className="optional">optional</span><input id={serviceId} value={form.dockerService || ""} onChange={(event) => update("dockerService", event.target.value)} placeholder="service-name" /></label></div>
     <DockerDetails app={form} />
-    <label className="toggle-row"><span><strong>Allow self-signed TLS</strong><small>Health checks and favicon fetching; use for trusted private services.</small></span><button type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-pressed={form.allowInsecureTls}><span /></button></label>
-    <label className="toggle-row"><span><strong>Favorite application</strong><small>Show in your Favorites filter</small></span><button type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-pressed={form.isFavorite}><span /></button></label>
+    <div className="toggle-row"><div><label htmlFor={tlsId}><strong>Allow self-signed TLS</strong></label><small id={`${tlsId}-description`}>Health checks and favicon fetching; use for trusted private services.</small></div><button id={tlsId} type="button" className={`toggle ${form.allowInsecureTls ? "toggle-on" : ""}`} onClick={() => update("allowInsecureTls", !form.allowInsecureTls)} aria-label="Allow self-signed TLS" aria-describedby={`${tlsId}-description`} aria-pressed={form.allowInsecureTls}><span /></button></div>
+    <div className="toggle-row"><div><label htmlFor={favoriteId}><strong>Favorite application</strong></label><small id={`${favoriteId}-description`}>Show in your Favorites filter</small></div><button id={favoriteId} type="button" className={`toggle ${form.isFavorite ? "toggle-on" : ""}`} onClick={() => update("isFavorite", !form.isFavorite)} aria-label="Favorite application" aria-describedby={`${favoriteId}-description`} aria-pressed={form.isFavorite}><span /></button></div>
     <div className="form-actions"><button type="button" className="button subtle" onClick={onCancel} disabled={saving}>Cancel</button>{!isNew && <button type="button" className="delete-button" onClick={handleDelete} disabled={saving}><Trash2 size={15} aria-hidden="true" />Delete</button>}<button type="submit" className="button primary" disabled={saving}><Check size={16} aria-hidden="true" />{saving ? "Saving…" : "Save changes"}</button></div>
   </form>;
 }
