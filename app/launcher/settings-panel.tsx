@@ -8,6 +8,7 @@ import { ActivityRow } from "./activity";
 import { statusCopy, blankApp } from "./utils";
 
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
+const ACTIVITY_CLOCK_INTERVAL_MS = 30_000;
 
 type SettingsPanelProps = {
   apps: ManagedApp[];
@@ -26,6 +27,7 @@ type SettingsPanelProps = {
 export function SettingsPanel({ apps, activities, editing, deletingId, saving, mutationError, onRefreshActivity, onClose, onEdit, onSave, onDelete }: SettingsPanelProps) {
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [activityNow, setActivityNow] = useState(() => Date.now());
 
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -56,6 +58,11 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editing, onClose]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setActivityNow(Date.now()), ACTIVITY_CLOCK_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, []);
+
   return <section ref={panelRef} className={`settings-panel${editing ? " details-panel" : ""}`} role="dialog" aria-modal="true" aria-labelledby="settings-title" onClick={(event) => event.stopPropagation()}>
     <div className="panel-header"><div><p className="eyebrow">Workspace</p><h2 id="settings-title">{editing ? "Application details" : "Application management"}</h2></div><button type="button" ref={closeButtonRef} className="close-button" onClick={onClose} aria-label="Close application modal"><X size={19} aria-hidden="true" /></button></div>
     <AnimatePresence mode="wait" initial={false}>
@@ -65,7 +72,7 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
           <div className="panel-section"><div className="panel-section-heading"><div><h3>Applications</h3><p>Manage what appears on your home screen.</p></div><button type="button" className="small-primary" onClick={() => onEdit(blankApp(apps.length))}><Plus size={15} aria-hidden="true" />Add</button></div>
             <div className="settings-list"><AnimatePresence initial={false} mode="popLayout">{apps.map((app) => <motion.div className="settings-app" key={app.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, x: 8 }} transition={motionTransition}><AppIcon app={app} /><div><strong>{app.name}</strong><small>{app.category} · {statusCopy[app.status]}</small></div><button type="button" className="edit-button" disabled={deletingId === app.id} onClick={() => onEdit(app)} aria-label={`Edit ${app.name}`}><Pencil size={15} aria-hidden="true" /></button></motion.div>)}</AnimatePresence></div>
           </div>
-          <div className="panel-section"><div className="panel-section-heading"><div><h3>Recent activity</h3><p>App changes and health events.</p></div>{activities.length > 0 && <button type="button" className="more-button" onClick={onRefreshActivity} aria-label="Refresh recent activity"><RefreshCw size={15} aria-hidden="true" /></button>}</div>{activities.length ? <div className="settings-activity">{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} />)}</div> : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div>
+          <div className="panel-section"><div className="panel-section-heading"><div><h3>Recent activity</h3><p>App changes and health events.</p></div>{activities.length > 0 && <button type="button" className="more-button" onClick={onRefreshActivity} aria-label="Refresh recent activity"><RefreshCw size={15} aria-hidden="true" /></button>}</div>{activities.length ? <div className="settings-activity">{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} now={activityNow} />)}</div> : <div className="activity-empty"><Activity size={20} /><strong>No recent activity</strong><small>App changes and health events will appear here.</small></div>}</div>
           <div className="panel-section settings-note"><ShieldCheck size={20} /><div><strong>Local-first by default</strong><p>Your app registry is stored on this server. No account or cloud sync required.</p></div></div>
         </motion.div>}
     </AnimatePresence>
