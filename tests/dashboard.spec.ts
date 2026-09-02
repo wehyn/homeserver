@@ -10,7 +10,7 @@ test.describe("dashboard browser regressions", () => {
 
     const workerResponse = await request.get("/sw.js");
     expect(workerResponse.ok()).toBeTruthy();
-    expect(await workerResponse.text()).toContain("NetworkFirst");
+    expect(await workerResponse.text()).toMatch(/fetch\(request\)[\s\S]*cache\.match/);
     await page.goto("/");
     await expect(page.locator("main.launcher")).toBeVisible();
   });
