@@ -361,6 +361,10 @@ h1, h2, h3, p { margin: 0; }
   .system-details-footer { display: block; margin-top: 12px; line-height: 1.8; }
   .system-details-footer > span:last-child { margin-left: 0; }
 }
+@media (max-width: 420px) {
+  .web-ui-fields { grid-template-columns: 1fr; }
+  .web-ui-host { grid-column: 1; grid-row: 1; }
+}
 @media (max-width: 640px) {
   .launcher-bar { min-height: 80px; padding: 11px 16px; gap: 10px; }
   .launcher-clock { gap: 5px; }
