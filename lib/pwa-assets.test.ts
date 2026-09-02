@@ -91,6 +91,7 @@ function decodePng(data: Buffer): Png {
                 : undefined;
 
       assert.notEqual(predictor, undefined, `unsupported PNG filter ${filter}`);
+      if (predictor === undefined) throw new Error(`unsupported PNG filter ${filter}`);
       currentRow[index] = (currentRow[index] + predictor) & 0xff;
     }
 
