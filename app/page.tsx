@@ -201,6 +201,8 @@ export default function Home() {
         : []);
       setApps((current) => applyHealthResults(current, validResults, checkedApps));
       if (results.some((result) => result.status === "fulfilled" && result.value.result.kind === "valid")) void refreshActivities();
+    } catch (caught) {
+      if (!controller.signal.aborted) setHealthError(caught instanceof Error ? caught.message : "Unable to refresh service health.");
     } finally {
       activeHealthRefreshesRef.current -= 1;
       const isCurrentRequest = healthRequestRef.current === controller;

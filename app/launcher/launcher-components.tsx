@@ -8,7 +8,7 @@ import { statusCopy } from "./utils";
 export function LauncherTile({ app }: { app: ManagedApp }) {
   const launchUrl = resolveAppLaunchUrl(app, typeof window === "undefined" ? undefined : window.location.hostname);
 
-  return <a className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" aria-label={app.name} title={`${app.name} · ${statusCopy[app.status]}`}>
+  return <a key={`${app.id}:${launchUrl}`} className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" aria-label={app.name} title={`${app.name} · ${statusCopy[app.status]}`}>
     <span className="launcher-iconwrap"><AppIcon app={app} large /></span>
   </a>;
 }
