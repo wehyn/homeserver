@@ -69,7 +69,7 @@ export function AppIcon({ app, large = false, proxy = true }: { app: ManagedApp;
   const iconSource = iconSources[sourceIndex] || "";
 
   return <div className={`app-icon ${large ? "app-icon-large" : ""}`} data-app-id={app.id} style={{ "--app-color": app.color } as CSSProperties}>
-    {iconSource ? <img key={iconSource} src={iconSource} alt="" referrerPolicy="no-referrer" onError={() => setSourceIndex((current) => current + 1)} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} aria-hidden="true" />}
+    {iconSource ? <img key={iconSource} src={iconSource} alt="" aria-hidden="true" referrerPolicy="no-referrer" onError={() => setSourceIndex((current) => current + 1)} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} aria-hidden="true" focusable="false" />}
   </div>;
 }
 

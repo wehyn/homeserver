@@ -2,7 +2,7 @@ import { Activity, ChevronDown, Pencil, Plus, Power, Trash2, X } from "lucide-re
 import type { ActivityEvent } from "@/lib/types";
 
 export function ActivityRow({ activity }: { activity: ActivityEvent }) {
-  return <div className="activity-row"><span className={`activity-icon ${activityTone(activity)}`}>{activityIcon(activity)}</span><div><strong>{activityTitle(activity)}</strong><small>{formatRelativeTime(activity.createdAt)}</small></div><ChevronDown size={14} className="activity-arrow" /></div>;
+  return <div className="activity-row"><span className={`activity-icon ${activityTone(activity)}`} aria-hidden="true">{activityIcon(activity)}</span><div><strong>{activityTitle(activity)}</strong><small>{formatRelativeTime(activity.createdAt)}</small></div><ChevronDown size={14} className="activity-arrow" aria-hidden="true" focusable="false" /></div>;
 }
 
 function activityTitle(activity: ActivityEvent) {

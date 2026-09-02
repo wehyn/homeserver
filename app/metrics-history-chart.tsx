@@ -85,10 +85,12 @@ export default function MetricsHistoryChart({ metric }: { metric: ChartMetric })
           <title id={`${metric}-history-title`}>{label} usage over the last {formatRange(minutes)}</title>
           <desc id={`${metric}-history-description`}>{chart.summary ? `${chart.points.length} readings. ${formatChartSummary(chart.summary)}` : "Loading metric readings."}</desc>
           <g aria-hidden="true">{buildGridLines(chart).map((line) => <g key={line.value}><line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={line.y} y2={line.y} className="metrics-chart-grid" /><text x={CHART_PLOT.left - 8} y={line.y + 3} textAnchor="end" className="metrics-chart-label">{formatChartPercent(line.value)}</text></g>)}</g>
-          {hasPoints && <line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={CHART_HEIGHT - CHART_PLOT.bottom} y2={CHART_HEIGHT - CHART_PLOT.bottom} className="metrics-chart-axis" />}
-          {hasPoints && <polyline points={chart.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="metrics-chart-line" />}
-          {chart.points.map((point) => <g key={point.timestamp}><circle cx={point.x} cy={point.y} r="5" fill={color} className="metrics-chart-point"><title>{formatChartReading(point)}</title></circle><text x={point.x} y={point.y - 10} textAnchor="middle" className="metrics-chart-point-label">{formatChartPercent(point.value)}</text></g>)}
-          {chart.timeLabels.map((timeLabel) => <text key={timeLabel.timestamp} x={timeLabel.x} y={CHART_HEIGHT - 14} textAnchor={timeLabel.x === CHART_PLOT.left ? "start" : timeLabel.x === CHART_WIDTH - CHART_PLOT.right ? "end" : "middle"} className="metrics-chart-time-label">{timeLabel.label}</text>)}
+          <g aria-hidden="true">
+            {hasPoints && <line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={CHART_HEIGHT - CHART_PLOT.bottom} y2={CHART_HEIGHT - CHART_PLOT.bottom} className="metrics-chart-axis" />}
+            {hasPoints && <polyline points={chart.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="metrics-chart-line" />}
+            {chart.points.map((point) => <g key={point.timestamp}><circle cx={point.x} cy={point.y} r="5" fill={color} className="metrics-chart-point"><title>{formatChartReading(point)}</title></circle><text x={point.x} y={point.y - 10} textAnchor="middle" className="metrics-chart-point-label">{formatChartPercent(point.value)}</text></g>)}
+          </g>
+          {chart.timeLabels.map((timeLabel) => <text key={timeLabel.timestamp} x={timeLabel.x} y={CHART_HEIGHT - 14} textAnchor={timeLabel.x === CHART_PLOT.left ? "start" : timeLabel.x === CHART_WIDTH - CHART_PLOT.right ? "end" : "middle"} className="metrics-chart-time-label" aria-hidden="true">{timeLabel.label}</text>)}
         </svg>
         {loading && <span className="metrics-history-loading"><RefreshCw size={14} className="spin" /> Updating</span>}
       </div>
