@@ -1,12 +1,14 @@
 import "server-only";
 
 import { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { toDatabaseRow } from "./db-row";
 import { seedApps } from "./seed";
 import type { DockerContainer, DockerContainerState, DockerHealthState } from "./docker-discovery";
 import type { ActivityEvent, ActivityType, AppStatus, HistoricalMetric, ManagedApp } from "./types";
+import { canPersistHealthResult, createHealthPersistenceSnapshot, type HealthPersistenceRow, type HealthPersistenceSnapshot } from "./health-persistence";
 
 const databasePath = process.env.DATABASE_PATH || path.join(process.cwd(), "data", "nimbus.db");
 let database: DatabaseSync | undefined;
@@ -44,7 +46,8 @@ function getDatabase() {
         casaos_scheme TEXT,
         casaos_hostname TEXT,
         casaos_port_map TEXT,
-        casaos_index TEXT
+        casaos_index TEXT,
+        health_generation TEXT
       )
     `);
     const appColumns = database.prepare("PRAGMA table_info(apps)").all() as { name?: unknown }[];
@@ -64,6 +67,8 @@ function getDatabase() {
     addColumnIfMissing(database, appColumns, "casaos_hostname", "TEXT");
     addColumnIfMissing(database, appColumns, "casaos_port_map", "TEXT");
     addColumnIfMissing(database, appColumns, "casaos_index", "TEXT");
+    addColumnIfMissing(database, appColumns, "health_generation", "TEXT");
+    database.prepare("UPDATE apps SET health_generation = lower(hex(randomblob(16))) WHERE health_generation IS NULL OR health_generation = ''");
     database.exec(`
       CREATE TABLE IF NOT EXISTS activities (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,11 +94,11 @@ function getDatabase() {
     database.exec("CREATE INDEX IF NOT EXISTS metric_snapshots_recorded_at_idx ON metric_snapshots (recorded_at DESC)");
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
-      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
-        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)`);
+      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index, health_generation)
+        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex, @healthGeneration)`);
       database.exec("BEGIN");
       try {
-        seedApps.forEach((app) => insert.run(toDatabaseRow(app)));
+        seedApps.forEach((app) => insert.run({ ...toDatabaseRow(app), healthGeneration: createHealthGeneration() }));
         database.exec("COMMIT");
       } catch (error) {
         database.exec("ROLLBACK");
@@ -135,22 +140,130 @@ export function findApp(id: string) {
   return row ? fromRow(row) : undefined;
 }
 
+export function getHealthPersistenceSnapshot(id: string, target: string): HealthPersistenceSnapshot | undefined {
+  const row = getDatabase().prepare("SELECT rowid, health_generation, url, health_url, allow_insecure_tls, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index FROM apps WHERE id = ?").get(id) as {
+    rowid?: number;
+    health_generation?: string | null;
+    url?: string;
+    health_url?: string | null;
+    allow_insecure_tls?: number;
+    casaos_scheme?: string | null;
+    casaos_hostname?: string | null;
+    casaos_port_map?: string | null;
+    casaos_index?: string | null;
+  } | undefined;
+  if (!row?.rowid || typeof row.health_generation !== "string" || !row.health_generation || typeof row.url !== "string") return undefined;
+  const healthRow: HealthPersistenceRow = {
+    rowVersion: Number(row.rowid),
+    recordGeneration: row.health_generation,
+    allowInsecureTls: row.allow_insecure_tls === 1,
+    url: row.url,
+    healthUrl: row.health_url ?? null,
+    casaosScheme: row.casaos_scheme ?? null,
+    casaosHostname: row.casaos_hostname ?? null,
+    casaosPortMap: row.casaos_port_map ?? null,
+    casaosIndex: row.casaos_index ?? null,
+  };
+  return createHealthPersistenceSnapshot(healthRow, target);
+}
+
+export function updateAppStatusIfHealthSnapshotMatches(id: string, status: AppStatus, started: HealthPersistenceSnapshot) {
+  const database = getDatabase();
+  const app = database.prepare("SELECT name, status, rowid, health_generation, url, health_url, allow_insecure_tls, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index FROM apps WHERE id = ?").get(id) as {
+    name?: string;
+    status?: AppStatus;
+    rowid?: number;
+    health_generation?: string | null;
+    url?: string;
+    health_url?: string | null;
+    allow_insecure_tls?: number;
+    casaos_scheme?: string | null;
+    casaos_hostname?: string | null;
+    casaos_port_map?: string | null;
+    casaos_index?: string | null;
+  } | undefined;
+  if (!app?.name || typeof app.rowid !== "number" || typeof app.health_generation !== "string" || !app.health_generation || typeof app.url !== "string") return false;
+  const current = createHealthPersistenceSnapshot({
+    rowVersion: Number(app.rowid),
+    recordGeneration: app.health_generation,
+    allowInsecureTls: app.allow_insecure_tls === 1,
+    url: app.url,
+    healthUrl: app.health_url ?? null,
+    casaosScheme: app.casaos_scheme ?? null,
+    casaosHostname: app.casaos_hostname ?? null,
+    casaosPortMap: app.casaos_port_map ?? null,
+    casaosIndex: app.casaos_index ?? null,
+  }, started.target);
+  if (!canPersistHealthResult(started, current) || app.status === status) return false;
+  const result = database.prepare(`UPDATE apps SET status = ?
+    WHERE id = ? AND rowid = ? AND status IS NOT ?
+      AND url = ? AND health_url IS ? AND allow_insecure_tls IS ? AND health_generation IS ?
+      AND casaos_scheme IS ? AND casaos_hostname IS ? AND casaos_port_map IS ? AND casaos_index IS ?`).run(
+    status,
+    id,
+    started.rowVersion,
+    status,
+    started.url,
+    started.healthUrl,
+    started.allowInsecureTls ? 1 : 0,
+    started.recordGeneration,
+    started.casaosScheme,
+    started.casaosHostname,
+    started.casaosPortMap,
+    started.casaosIndex,
+  );
+  if (Number(result.changes) !== 1) return false;
+  recordActivity("status-changed", id, app.name, status);
+  return true;
+}
+
+function getCurrentHealthPersistenceSnapshot(database: DatabaseSync, id: string, target: string, allowInsecureTls: boolean) {
+  const row = database.prepare("SELECT rowid, health_generation, url, health_url, allow_insecure_tls, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index FROM apps WHERE id = ?").get(id) as {
+    rowid?: number;
+    health_generation?: string | null;
+    url?: string;
+    health_url?: string | null;
+    allow_insecure_tls?: number;
+    casaos_scheme?: string | null;
+    casaos_hostname?: string | null;
+    casaos_port_map?: string | null;
+    casaos_index?: string | null;
+  } | undefined;
+  if (!row?.rowid || typeof row.health_generation !== "string" || !row.health_generation || typeof row.url !== "string") return undefined;
+  const healthRow: HealthPersistenceRow = {
+    rowVersion: Number(row.rowid),
+    recordGeneration: row.health_generation,
+    allowInsecureTls: row.allow_insecure_tls === 1,
+    url: row.url,
+    healthUrl: row.health_url ?? null,
+    casaosScheme: row.casaos_scheme ?? null,
+    casaosHostname: row.casaos_hostname ?? null,
+    casaosPortMap: row.casaos_port_map ?? null,
+    casaosIndex: row.casaos_index ?? null,
+  };
+  return createHealthPersistenceSnapshot(healthRow, target);
+}
+
 export function saveApp(app: ManagedApp) {
   const database = getDatabase();
-  const existing = database.prepare("SELECT id, status, docker_project, docker_service FROM apps WHERE id = ?").get(app.id) as {
+  const existing = database.prepare("SELECT id, status, health_generation, docker_project, docker_service FROM apps WHERE id = ?").get(app.id) as {
     id?: string;
     status?: AppStatus;
+    health_generation?: string | null;
     docker_project?: string | null;
     docker_service?: string | null;
   } | undefined;
   let persistedApp = existing ? { ...app, status: existing.status || app.status } : app;
+  const healthGeneration = existing && existing.health_generation && existing.health_generation.length > 0
+    ? existing.health_generation
+    : createHealthGeneration();
   if (existing && (normalizeLinkValue(existing.docker_project) !== normalizeLinkValue(app.dockerProject)
     || normalizeLinkValue(existing.docker_service) !== normalizeLinkValue(app.dockerService))) {
     persistedApp = clearDockerMetadata(persistedApp);
   }
-  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index)
-    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex)
-    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex`).run(toDatabaseRow(persistedApp));
+  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index, health_generation)
+    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex, @healthGeneration)
+    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex, health_generation=@healthGeneration`).run({ ...toDatabaseRow(persistedApp), healthGeneration });
   recordActivity(existing ? "app-updated" : "app-created", persistedApp.id, persistedApp.name);
   return persistedApp;
 }
@@ -245,6 +358,10 @@ function recordActivity(type: ActivityType, appId: string, appName: string, stat
 
 function addColumnIfMissing(database: DatabaseSync, columns: { name?: unknown }[], name: string, definition: string) {
   if (!columns.some((column) => column.name === name)) database.exec(`ALTER TABLE apps ADD COLUMN ${name} ${definition}`);
+}
+
+function createHealthGeneration() {
+  return randomUUID();
 }
 
 function clearDockerMetadata(app: ManagedApp): ManagedApp {
