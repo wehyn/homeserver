@@ -16,6 +16,6 @@ test("application fields use explicit labels and stable control ids", () => {
 test("modal implementations guard focus from stray positions", () => {
   assert.match(settingsSource, /getFocusableElements\(panelRef\.current\)/);
   assert.match(systemSource, /getFocusableElements\(panelRef\.current\)/);
-  assert.match(settingsSource, /document\.activeElement !== first && document\.activeElement !== last/);
-  assert.match(systemSource, /document\.activeElement !== first && document\.activeElement !== last/);
+  assert.match(settingsSource, /const activeIndex = focusableElements\.indexOf/);
+  assert.match(systemSource, /const activeIndex = focusableElements\.indexOf/);
 });

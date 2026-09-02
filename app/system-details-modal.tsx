@@ -64,7 +64,10 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
     }
   }, [kind, title]);
 
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
+    previousActiveElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     void refresh();
     const interval = window.setInterval(() => void refresh(), 5_000);
     previousBodyOverflowRef.current = document.body.style.overflow;
@@ -74,6 +77,7 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
       window.clearInterval(interval);
       requestRef.current?.abort();
       document.body.style.overflow = previousBodyOverflowRef.current;
+      window.setTimeout(() => previousActiveElementRef.current?.focus(), 220);
     };
   }, [refresh]);
 
@@ -84,21 +88,23 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
         onClose();
         return;
       }
-      if (event.key !== "Tab" || !panelRef.current) return;
-      const focusableElements = getFocusableElements(panelRef.current).filter((element) => element.getAttribute("aria-hidden") !== "true");
+      if (event.key !== "Tab") return;
+      const focusableElements = panelRef.current ? getFocusableElements(panelRef.current) : [];
       if (!focusableElements.length) {
         event.preventDefault();
         return;
       }
+      const activeElement = document.activeElement;
       const first = focusableElements[0];
       const last = focusableElements[focusableElements.length - 1];
-      if (document.activeElement !== first && document.activeElement !== last) {
+      const activeIndex = focusableElements.indexOf(activeElement as HTMLElement);
+      if (activeIndex === -1) {
         event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeIndex === 0) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeIndex === focusableElements.length - 1) {
         event.preventDefault();
         first.focus();
       }

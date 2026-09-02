@@ -33,8 +33,10 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [activityNow, setActivityNow] = useState(() => Date.now());
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    previousActiveElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -42,27 +44,32 @@ export function SettingsPanel({ apps, activities, editing, deletingId, saving, m
         onClose();
         return;
       }
-      if (event.key !== "Tab" || !panelRef.current) return;
-      const focusableElements = getFocusableElements(panelRef.current);
+      if (event.key !== "Tab") return;
+      const focusableElements = panelRef.current ? getFocusableElements(panelRef.current) : [];
       if (!focusableElements.length) {
         event.preventDefault();
         return;
       }
+      const activeElement = document.activeElement;
       const first = focusableElements[0];
       const last = focusableElements[focusableElements.length - 1];
-      if (document.activeElement !== first && document.activeElement !== last) {
+      const activeIndex = focusableElements.indexOf(activeElement as HTMLElement);
+      if (activeIndex === -1) {
         event.preventDefault();
-        first.focus();
-      } else if (event.shiftKey && document.activeElement === first) {
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeIndex === 0) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeIndex === focusableElements.length - 1) {
         event.preventDefault();
         first.focus();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      window.setTimeout(() => previousActiveElementRef.current?.focus(), 220);
+    };
   }, [editing, onClose]);
 
   useEffect(() => startActivityClock(() => setActivityNow(Date.now())), []);
