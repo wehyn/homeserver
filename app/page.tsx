@@ -16,7 +16,6 @@ function OfflineBanner({ onRetry }: { onRetry: () => void }) {
 }
 
 const motionTransition = { duration: 0.2, ease: "easeOut" as const };
-
 export default function Home() {
   const [apps, setApps] = useState<ManagedApp[]>([]);
   const [appsLoading, setAppsLoading] = useState(true);
