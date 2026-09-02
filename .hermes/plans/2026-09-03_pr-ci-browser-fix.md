@@ -4,14 +4,16 @@
 
 **Goal:** Make the Browser regression GitHub Actions job wait for the local Next.js server using a command available in the repository's installed toolchain.
 
-**Root cause:** The workflow invokes `npx playwright wait-for-server`, but the installed Playwright CLI has no `wait-for-server` command. The PR's browser tests pass locally when Playwright starts the server through `playwright.config.ts`.
+**Root cause:** The workflow first starts Next.js manually, then invokes `npx playwright wait-for-server`, a CLI command that does not exist in the installed Playwright version. After replacing that command, Playwright's `webServer` configuration would also try to start a second server in CI because `reuseExistingServer` is disabled there.
+
+**Approach:** Keep one owner for browser-server lifecycle: let `playwright.config.ts` start and wait for Next.js. Remove the duplicate workflow startup and unavailable wait command rather than weakening CI reuse settings.
 
 ## Steps
 
-1. Replace the unavailable CLI command in `.github/workflows/ci.yml` with a bounded shell loop using `curl` against `http://127.0.0.1:3000`, failing with the captured server log if the server does not become ready.
-2. Verify the workflow diff and shell syntax without changing the browser test assertions.
-3. Run the browser suite locally with the workflow's server mode, then run the full test, lint, build, service-worker syntax, and diff checks.
-4. Commit the CI-only correction separately, push the PR branch, and verify the PR head points to that exact commit.
+1. Remove the manual Start/Wait application steps from `.github/workflows/ci.yml`; `npx playwright test` will use the existing `webServer` configuration.
+2. Verify the workflow diff and confirm no unavailable CLI command remains.
+3. Run the browser suite locally with Playwright-managed server startup, then run the full test, lint, build, service-worker syntax, and diff checks.
+4. Commit the CI-only correction separately, review the exact new head, push the PR branch, and verify the PR head points to that exact commit.
 5. Re-run/inspect GitHub Actions and update the PR description so review status is reported truthfully.
 
 ## Acceptance
