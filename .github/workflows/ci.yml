@@ -44,7 +44,15 @@ jobs:
       - name: Start application
         run: npm run dev -- --hostname 127.0.0.1 > /tmp/nimbus-next.log 2>&1 &
       - name: Wait for application
-        run: npx playwright wait-for-server http://127.0.0.1:3000
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000 > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/nimbus-next.log
+          exit 1
       - name: Run browser regression suite
         run: npx playwright test
 
