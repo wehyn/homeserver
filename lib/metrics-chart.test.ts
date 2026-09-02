@@ -82,3 +82,23 @@ test("labels every point when a chart has three or fewer readings", () => {
     { timestamp: "last", label: "last", x: 736 },
   ]);
 });
+
+test("keeps flat boundary readings inside a readable percentage scale", () => {
+  const lowChart = buildMetricsChart([point("2026-09-01T10:00:00.000Z", 0)], "cpu");
+  const highChart = buildMetricsChart([point("2026-09-01T10:00:00.000Z", 100)], "memory");
+
+  assert.ok(lowChart.scale.range >= 10);
+  assert.ok(highChart.scale.range >= 10);
+  assert.ok(lowChart.points.every((item) => item.y >= 18 && item.y <= 238));
+  assert.ok(highChart.points.every((item) => item.y >= 18 && item.y <= 238));
+});
+
+test("does not plot non-finite metric samples as zero readings", () => {
+  const chart = buildMetricsChart([
+    point("2026-09-01T10:00:00.000Z", Number.NaN),
+    point("2026-09-01T10:01:00.000Z", 42),
+  ], "cpu");
+
+  assert.deepEqual(chart.points.map((item) => item.value), [42]);
+  assert.deepEqual(chart.summary, { latest: 42, minimum: 42, maximum: 42, average: 42 });
+});

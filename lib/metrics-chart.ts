@@ -74,12 +74,12 @@ export function normalizeChartPoints(points: HistoricalMetric[], metric: ChartMe
   return points
     .map((point) => ({
       timestamp: point.timestamp,
-      value: clampMetricValue(point[metric]),
+      value: point[metric],
       time: Date.parse(point.timestamp),
     }))
-    .filter((point) => point.timestamp.length > 0 && Number.isFinite(point.time))
+    .filter((point) => point.timestamp.length > 0 && Number.isFinite(point.time) && Number.isFinite(point.value))
     .sort((left, right) => left.time - right.time)
-    .map(({ timestamp, value }) => ({ timestamp, value }));
+    .map(({ timestamp, value }) => ({ timestamp, value: clampMetricValue(value) }));
 }
 
 export function clampMetricValue(value: number) {
@@ -95,10 +95,21 @@ export function getChartScale(values: number[]): ChartScale {
   const padding = Math.max(2, range * 0.2);
   const boundedMinimum = Math.max(MINIMUM_SCALE_VALUE, Math.floor((center - range / 2 - padding) * 10) / 10);
   const boundedMaximum = Math.min(MAXIMUM_SCALE_VALUE, Math.ceil((center + range / 2 + padding) * 10) / 10);
-  const adjustedRange = boundedMaximum - boundedMinimum;
+  let readableMinimum = boundedMinimum;
+  let readableMaximum = boundedMaximum;
+  if (readableMaximum - readableMinimum < MINIMUM_SCALE_RANGE) {
+    if (readableMinimum === MINIMUM_SCALE_VALUE) readableMaximum = Math.min(MAXIMUM_SCALE_VALUE, MINIMUM_SCALE_RANGE);
+    else if (readableMaximum === MAXIMUM_SCALE_VALUE) readableMinimum = Math.max(MINIMUM_SCALE_VALUE, MAXIMUM_SCALE_VALUE - MINIMUM_SCALE_RANGE);
+    else {
+      const midpoint = (readableMinimum + readableMaximum) / 2;
+      readableMinimum = Math.max(MINIMUM_SCALE_VALUE, midpoint - MINIMUM_SCALE_RANGE / 2);
+      readableMaximum = Math.min(MAXIMUM_SCALE_VALUE, midpoint + MINIMUM_SCALE_RANGE / 2);
+    }
+  }
+  const adjustedRange = readableMaximum - readableMinimum;
   return {
-    minimum: boundedMinimum,
-    maximum: boundedMaximum,
+    minimum: readableMinimum,
+    maximum: readableMaximum,
     range: adjustedRange,
   };
 }

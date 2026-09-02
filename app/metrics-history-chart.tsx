@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, TriangleAlert } from "lucide-react";
 import type { HistoricalMetric } from "@/lib/types";
 import { buildMetricsChart, CHART_HEIGHT, CHART_PLOT, CHART_WIDTH, formatChartTime, type ChartMetric, type MetricsChartData } from "@/lib/metrics-chart";
+import { shouldApplyMetricsHistoryRequest } from "@/lib/metrics-history-request";
 
 type MetricHistoryResponse = { minutes: number; points: HistoricalMetric[] };
 
@@ -30,19 +31,20 @@ export default function MetricsHistoryChart({ metric }: { metric: ChartMetric })
     requestIdRef.current = requestId;
     requestRef.current = controller;
     setLoading(true);
+    setError("");
 
     void fetchMetricHistory(minutes, controller.signal)
       .then((nextPoints) => {
-        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+        if (!shouldApplyMetricsHistoryRequest(requestId, requestIdRef.current, controller.signal)) return;
         setPoints(nextPoints);
         setError("");
       })
       .catch((caught) => {
-        if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+        if (!shouldApplyMetricsHistoryRequest(requestId, requestIdRef.current, controller.signal)) return;
         setError(caught instanceof Error ? caught.message : "Unable to load metric history.");
       })
       .finally(() => {
-        if (requestId === requestIdRef.current) {
+        if (shouldApplyMetricsHistoryRequest(requestId, requestIdRef.current, controller.signal)) {
           requestRef.current = null;
           setLoading(false);
         }
@@ -54,6 +56,7 @@ export default function MetricsHistoryChart({ metric }: { metric: ChartMetric })
     const interval = window.setInterval(refresh, 30_000);
     return () => {
       window.clearInterval(interval);
+      requestIdRef.current += 1;
       requestRef.current?.abort();
       requestRef.current = null;
     };
