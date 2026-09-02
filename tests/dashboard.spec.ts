@@ -123,6 +123,20 @@ test.describe("dashboard browser regressions", () => {
     await expect(trigger).toBeFocused();
   });
 
+  test("resynchronizes application form fields when switching records", async ({ page }) => {
+    const secondApp = { ...apps[0], id: "second", name: "Second service", description: "Second description", dockerProject: "demo", dockerService: "second", url: "http://localhost:9090" };
+    await installDashboardFixtures(page, [{ ...apps[0], dockerProject: "demo", dockerService: "first", url: "http://localhost:8080" }, secondApp]);
+    await page.goto("/");
+    await page.getByRole("button", { name: "Application management" }).click();
+    await page.getByRole("button", { name: "Edit Demo service" }).click();
+    await expect(page.locator("#app-demo-title")).toHaveValue("Demo service");
+    await page.getByRole("button", { name: "All applications" }).click();
+    await page.getByRole("button", { name: "Edit Second service" }).click();
+    await expect(page.locator("#app-second-title")).toHaveValue("Second service");
+    await expect(page.locator("#app-second-description")).toHaveValue("Second description");
+    await expect(page.locator("#app-second-url-port")).toHaveValue("9090");
+  });
+
   test("renders metrics text alternatives and accessible process sorting", async ({ page }) => {
     await installDashboardFixtures(page);
     await page.goto("/");
