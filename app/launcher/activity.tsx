@@ -1,9 +1,16 @@
+import { useEffect, useState } from "react";
 import { Activity, ChevronDown, Pencil, Plus, Power, Trash2, X } from "lucide-react";
 import type { ActivityEvent } from "@/lib/types";
-import { formatRelativeTime } from "@/lib/relative-time";
+import { formatRelativeTime, startActivityClock } from "@/lib/relative-time";
 
 export function ActivityRow({ activity, now }: { activity: ActivityEvent; now?: number }) {
   return <div className="activity-row"><span className={`activity-icon ${activityTone(activity)}`} aria-hidden="true">{activityIcon(activity)}</span><div><strong>{activityTitle(activity)}</strong><small>{formatRelativeTime(activity.createdAt, now)}</small></div><ChevronDown size={14} className="activity-arrow" aria-hidden="true" focusable="false" /></div>;
+}
+
+export function ActivityList({ activities }: { activities: ActivityEvent[] }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => startActivityClock(() => setNow(Date.now())), []);
+  return <div>{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} now={now} />)}</div>;
 }
 
 function activityTitle(activity: ActivityEvent) {

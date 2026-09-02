@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Activity, Check, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, X } from "lucide-react";
 import { getAppUrlParts, isHostLocalService, updateAppUrl, type AppUrlProtocol } from "@/lib/app-url";
-import { startActivityClock } from "@/lib/relative-time";
+import { startActivityClock, formatRelativeTime } from "@/lib/relative-time";
 import type { ActivityEvent, ManagedApp } from "@/lib/types";
 import { AppIcon } from "./icons";
 import { ActivityRow } from "./activity";
