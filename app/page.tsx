@@ -249,6 +249,15 @@ export default function Home() {
     return () => window.clearInterval(interval);
   }, [refreshHealth, appsLoading, apps.map((app) => `${app.id}:${app.healthUrl || app.url}:${app.casaosScheme || ""}:${app.casaosHostname || ""}:${app.casaosPortMap || ""}:${app.casaosIndex || ""}:${app.allowInsecureTls ? "insecure" : "strict"}`).join("|")]);
 
+  const modalOpen = settingsOpen || systemDetails !== null;
+  useEffect(() => {
+    const appRoot = document.querySelector("body > div");
+    if (!appRoot) return;
+    if (modalOpen) appRoot.setAttribute("inert", "");
+    else appRoot.removeAttribute("inert");
+    return () => appRoot.removeAttribute("inert");
+  }, [modalOpen]);
+
   const visibleApps = useMemo(() => apps.filter((app) => app.isVisible), [apps]);
 
   async function saveApp(app: ManagedApp) {
