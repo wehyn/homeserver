@@ -1,6 +1,6 @@
 import https from "node:https";
 import { NextResponse } from "next/server";
-import { findApp, updateAppStatus } from "@/lib/db";
+import { findApp, getHealthPersistenceSnapshot, updateAppStatusIfHealthSnapshotMatches } from "@/lib/db";
 import { isCasaOSHealthSuccess, resolveHealthTarget } from "@/lib/health-target";
 import type { AppStatus } from "@/lib/types";
 
@@ -14,6 +14,7 @@ export async function GET(request: Request) {
   if (!app) return NextResponse.json({ status: "unknown", error: "application not found" }, { status: 404 });
   const url = resolveHealthTarget(app);
   if (!url) return NextResponse.json({ status: "unknown" }, { status: 400 });
+  const persistenceSnapshot = getHealthPersistenceSnapshot(appId, url);
 
   try {
     const target = new URL(url);
@@ -26,10 +27,10 @@ export async function GET(request: Request) {
     const elapsed = Date.now() - started;
     const successful = isCasaOSHealthSuccess(response.statusCode);
     const status = (successful ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
-    updateAppStatus(appId, status);
+    if (persistenceSnapshot) updateAppStatusIfHealthSnapshotMatches(appId, status, persistenceSnapshot);
     return NextResponse.json({ status, latency: elapsed, statusCode: response.statusCode });
   } catch {
-    updateAppStatus(appId, "offline");
+    if (persistenceSnapshot) updateAppStatusIfHealthSnapshotMatches(appId, "offline", persistenceSnapshot);
     return NextResponse.json({ status: "offline" });
   }
 }

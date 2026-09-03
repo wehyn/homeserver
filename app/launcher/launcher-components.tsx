@@ -1,18 +1,14 @@
-import { useEffect, useState, type ReactNode } from "react";
 import { resolveAppLaunchUrl } from "@/lib/app-url";
+import type { ReactNode } from "react";
 import type { ManagedApp } from "@/lib/types";
 import { Plus } from "lucide-react";
 import { AppIcon } from "./icons";
 import { statusCopy } from "./utils";
 
 export function LauncherTile({ app }: { app: ManagedApp }) {
-  const [launchUrl, setLaunchUrl] = useState(app.url);
+  const launchUrl = resolveAppLaunchUrl(app, typeof window === "undefined" ? undefined : window.location.hostname);
 
-  useEffect(() => {
-    setLaunchUrl(resolveAppLaunchUrl(app, window.location.hostname));
-  }, [app]);
-
-  return <a className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" aria-label={app.name} title={`${app.name} · ${statusCopy[app.status]}`}>
+  return <a key={`${app.id}:${launchUrl}`} className="launcher-tile" href={launchUrl} target="_blank" rel="noreferrer" aria-label={app.name} title={`${app.name} · ${statusCopy[app.status]}`}>
     <span className="launcher-iconwrap"><AppIcon app={app} large /></span>
   </a>;
 }

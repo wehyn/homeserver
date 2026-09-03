@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HistoricalMetric } from "./types.ts";
-import { buildMetricsChart, buildTimeLabels, clampMetricValue, getChartScale, normalizeChartPoints } from "./metrics-chart.ts";
+import { buildMetricsChart, buildTimeLabels, clampMetricValue, formatChartReading, formatChartSummary, getChartScale, normalizeChartPoints } from "./metrics-chart.ts";
 
 function point(timestamp: string, cpu: number, memory = cpu): HistoricalMetric {
   return { timestamp, cpu, memory, storage: 40, temperatureC: null, powerWatts: null };
@@ -81,4 +81,38 @@ test("labels every point when a chart has three or fewer readings", () => {
     { timestamp: "first", label: "first", x: 48 },
     { timestamp: "last", label: "last", x: 736 },
   ]);
+});
+
+test("keeps flat boundary readings inside a readable percentage scale", () => {
+  const lowChart = buildMetricsChart([point("2026-09-01T10:00:00.000Z", 0)], "cpu");
+  const highChart = buildMetricsChart([point("2026-09-01T10:00:00.000Z", 100)], "memory");
+
+  assert.ok(lowChart.scale.range >= 10);
+  assert.ok(highChart.scale.range >= 10);
+  assert.ok(lowChart.points.every((item) => item.y >= 18 && item.y <= 238));
+  assert.ok(highChart.points.every((item) => item.y >= 18 && item.y <= 238));
+});
+
+test("does not plot non-finite metric samples as zero readings", () => {
+  const chart = buildMetricsChart([
+    point("2026-09-01T10:00:00.000Z", Number.NaN),
+    point("2026-09-01T10:01:00.000Z", 42),
+  ], "cpu");
+
+  assert.deepEqual(chart.points.map((item) => item.value), [42]);
+  assert.deepEqual(chart.summary, { latest: 42, minimum: 42, maximum: 42, average: 42 });
+});
+
+test("formats chart readings and summary as a complete text alternative", () => {
+  const chart = buildMetricsChart([
+    point("2026-09-01T10:00:00.000Z", 12.5),
+    point("2026-09-01T10:01:00.000Z", 37),
+  ], "cpu", () => "10:00");
+
+  assert.deepEqual(chart.points.map((item) => formatChartReading(item, () => "10:00")), [
+    "10:00 · 12.5%",
+    "10:00 · 37.0%",
+  ]);
+  assert.equal(formatChartSummary(chart.summary), "Latest 37.0%, low 12.5%, high 37.0%.");
+  assert.equal(formatChartSummary(null), "No readings available.");
 });

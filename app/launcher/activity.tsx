@@ -1,8 +1,16 @@
+import { useEffect, useState } from "react";
 import { Activity, ChevronDown, Pencil, Plus, Power, Trash2, X } from "lucide-react";
 import type { ActivityEvent } from "@/lib/types";
+import { formatRelativeTime, startActivityClock } from "@/lib/relative-time";
 
-export function ActivityRow({ activity }: { activity: ActivityEvent }) {
-  return <div className="activity-row"><span className={`activity-icon ${activityTone(activity)}`}>{activityIcon(activity)}</span><div><strong>{activityTitle(activity)}</strong><small>{formatRelativeTime(activity.createdAt)}</small></div><ChevronDown size={14} className="activity-arrow" /></div>;
+export function ActivityRow({ activity, now }: { activity: ActivityEvent; now?: number }) {
+  return <div className="activity-row"><span className={`activity-icon ${activityTone(activity)}`} aria-hidden="true">{activityIcon(activity)}</span><div><strong>{activityTitle(activity)}</strong><small>{formatRelativeTime(activity.createdAt, now)}</small></div><ChevronDown size={14} className="activity-arrow" aria-hidden="true" focusable="false" /></div>;
+}
+
+export function ActivityList({ activities }: { activities: ActivityEvent[] }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => startActivityClock(() => setNow(Date.now())), []);
+  return <div>{activities.map((activity) => <ActivityRow key={activity.id} activity={activity} now={now} />)}</div>;
 }
 
 function activityTitle(activity: ActivityEvent) {
@@ -27,16 +35,4 @@ function activityIcon(activity: ActivityEvent) {
   if (activity.type === "app-updated") return <Pencil size={16} />;
   if (activity.status === "offline") return <X size={16} />;
   return <Power size={16} />;
-}
-
-function formatRelativeTime(createdAt: string) {
-  const elapsed = Math.max(0, Date.now() - new Date(createdAt).getTime());
-  if (!Number.isFinite(elapsed)) return "Recently";
-  const minutes = Math.floor(elapsed / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
-  const days = Math.floor(hours / 24);
-  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
