@@ -30,7 +30,10 @@ test("redacts sensitive environment values by default", () => {
 });
 
 test("redacts sensitive values in Compose environment metadata", () => {
-  const details = parseComposeServiceDetails(`services:\n  app:\n    environment:\n      DATABASE_URL: postgres://user:${sensitiveValue}@example.test/db\n      ENCRYPTION_KEY: ${sensitiveValue}\n      APP_MODE: production\n`, "app");
+  const details = parseComposeServiceDetails(
+    `services:\n  app:\n    environment:\n      DATABASE_URL: postgres://user:${sensitiveValue}@example.test/db\n      ENCRYPTION_KEY: ${sensitiveValue}\n      APP_MODE: production\n`,
+    "app",
+  );
 
   const databaseUrl = details.environment.find((variable) => variable.name === "DATABASE_URL")?.value || "";
   assert.equal(databaseUrl.includes(sensitiveValue), false);
