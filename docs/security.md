@@ -8,6 +8,9 @@ without authentication, authorization, rate limiting, and a reviewed reverse-pro
 - Keep runtime secrets and machine-specific values in `.env`.
 - `.env*` is ignored except for `.env.example`.
 - Never commit credentials, private keys, tokens, private URLs, or production database files.
+- Docker and Compose environment values are treated as sensitive telemetry: redact every value
+  before it crosses the agent/API boundary, including connection URLs and encryption/database
+  variables. Do not expose raw environment values to the browser.
 - Keep SQLite data under the configured `DATABASE_PATH`; local `data/` files are runtime artifacts.
 - Preserve the existing database schema and data when making changes.
 - The legacy `apps.is_favorite` column is intentionally retained and inert; it is omitted from

@@ -1,5 +1,5 @@
 import { request as httpRequest } from "node:http";
-import { readFile, readdir } from "node:fs/promises";
+import { open, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import type {
   CasaOSWebUI,
@@ -774,10 +774,24 @@ async function collectComposeFiles(directory: string, output: string[], ancestor
 
 async function readFileLimited(path: string, maxBytes: number, signal?: AbortSignal, deadline?: number) {
   if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
-  const buffer = await readFile(path);
-  if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
-  if (buffer.byteLength > maxBytes) throw new Error("Compose file exceeds its size limit.");
-  return buffer.toString("utf8");
+  const file = await open(path, "r");
+  try {
+    const chunks: Buffer[] = [];
+    let bytesRead = 0;
+    while (true) {
+      if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
+      const chunk = Buffer.alloc(Math.min(64 * 1024, maxBytes + 1 - bytesRead));
+      const result = await file.read(chunk, 0, chunk.byteLength, null);
+      if (!result.bytesRead) break;
+      bytesRead += result.bytesRead;
+      chunks.push(chunk.subarray(0, result.bytesRead));
+      if (bytesRead > maxBytes) throw new Error("Compose file exceeds its size limit.");
+    }
+    if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
+    return Buffer.concat(chunks, bytesRead).toString("utf8");
+  } finally {
+    await file.close();
+  }
 }
 
 function requestDockerSocket(socketPath: string, path: string, signal: AbortSignal | undefined, timeoutMs: number) {
@@ -904,9 +918,19 @@ function uniqueEnvironment(environment: DockerEnvironmentVariable[]) {
 }
 
 function redactEnvironmentValue(name: string, value: string) {
-  return /(?:pass(?:word|wd)?|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|credential|auth)/i.test(name)
-    ? "<redacted>"
-    : value;
+  if (!value) return value;
+  if (/(?:pass(?:word|wd)?|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|credential|auth|encrypt|database|dsn|connection|config)/i.test(name)) return "<redacted>";
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) {
+      url.username = "***";
+      url.password = "***";
+      return url.toString();
+    }
+  } catch {
+    // Non-URL values are returned unchanged unless their variable name is sensitive.
+  }
+  return value;
 }
 
 function normalizeProtocol(value: string | null): DockerPort["protocol"] {
