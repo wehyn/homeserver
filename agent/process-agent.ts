@@ -561,17 +561,15 @@ export function startServer() {
       return;
     }
 
-    const lifecycle = requestPath === "/v1/memory/processes" || requestPath === "/v1/processor/processes"
-      ? createRequestLifecycle(request, response)
-      : null;
+    const lifecycle = createRequestLifecycle(request, response);
     try {
       const data = requestPath === "/v1/hardware"
         ? await hardwareSampler.getSnapshot()
         : requestPath === "/v1/processor/processes"
-          ? await collectProcessorSnapshot({ signal: lifecycle?.signal })
+          ? await collectProcessorSnapshot({ signal: lifecycle.signal })
           : requestPath === "/v1/docker/containers"
-            ? await collectDockerSnapshot()
-            : await collectSnapshot({ signal: lifecycle?.signal });
+            ? await collectDockerSnapshot({ signal: lifecycle.signal })
+            : await collectSnapshot({ signal: lifecycle.signal });
       sendJson(response, 200, data, Boolean(lifecycle));
     } catch (error) {
       if (!response.destroyed && !isAbortError(error)) sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to collect system metrics" });

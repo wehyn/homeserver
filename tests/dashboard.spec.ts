@@ -183,8 +183,10 @@ test.describe("dashboard browser regressions", () => {
     page.on("request", (request) => {
       if (request.url().includes("/api/")) apiRequests.push(new URL(request.url()).pathname);
     });
+    const appsResponsePromise = page.waitForResponse((response) => response.url().includes("/api/apps") && response.request().method() === "GET");
     await page.goto("/", { waitUntil: "domcontentloaded" });
     await expect(page.locator("main.launcher")).toBeVisible();
+    await appsResponsePromise;
     await expect(page.getByRole("link", { name: "Demo service" })).toBeVisible();
     await expect.poll(() => apiRequests.filter((path) => path === "/api/apps").length).toBe(1);
     await expect(page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).resolves.toBeTruthy();
@@ -198,8 +200,11 @@ test.describe("dashboard browser regressions", () => {
       healthRequests += 1;
       return route.fulfill({ json: { status: "online", latency: 20, statusCode: 200 } });
     });
+    const appsResponsePromise = page.waitForResponse((response) => response.url().includes("/api/apps") && response.request().method() === "GET");
     await page.goto("/", { waitUntil: "domcontentloaded" });
+    await appsResponsePromise;
     await expect(page.getByRole("link", { name: "Demo service" })).toBeVisible();
+    await expect.poll(() => healthRequests).toBeGreaterThan(0);
     const initialRequests = healthRequests;
     await page.evaluate(() => Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" }));
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));

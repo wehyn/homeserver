@@ -82,6 +82,7 @@ test.describe("performance smoke", () => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await installFixtures(page);
       await page.goto("/", { waitUntil: "domcontentloaded" });
+      await expect.poll(() => page.getByRole("link", { name: "Demo service" }).count()).toBeGreaterThan(0);
       await expect(page.getByRole("link", { name: "Demo service" })).toBeVisible();
       await expect(page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).resolves.toBeTruthy();
     });

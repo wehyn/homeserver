@@ -38,6 +38,7 @@ export async function GET(request: Request) {
 }
 
 async function fetchWithTimeout(target: URL, requestSignal: AbortSignal) {
+  if (requestSignal.aborted) throw new Error("Health check aborted");
   const controller = new AbortController();
   const abort = () => controller.abort();
   requestSignal.addEventListener("abort", abort, { once: true });
@@ -59,19 +60,35 @@ function requestWithInsecureTls(target: URL, requestSignal?: AbortSignal) {
       const statusCode = response.statusCode ?? 0;
       response.resume();
       response.once("end", () => {
+        clearTimeout(timeout);
+        requestSignal?.removeEventListener("abort", abort);
         if (settled) return;
         settled = true;
         resolve({ statusCode });
       });
       response.once("error", (error) => {
+        clearTimeout(timeout);
+        requestSignal?.removeEventListener("abort", abort);
         if (settled) return;
         settled = true;
         reject(error);
       });
     });
-    const timeout = setTimeout(() => request.destroy(new Error("Health check timed out")), 4500);
-    const abort = () => request.destroy(new Error("Health check aborted"));
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      request.destroy(new Error("Health check timed out"));
+    }, 4500);
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      request.destroy(new Error("Health check aborted"));
+    };
     requestSignal?.addEventListener("abort", abort, { once: true });
+    if (requestSignal?.aborted) {
+      abort();
+      return;
+    }
     request.once("error", (error) => {
       clearTimeout(timeout);
       requestSignal?.removeEventListener("abort", abort);

@@ -87,8 +87,11 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
       requestRef.current?.abort();
       requestVersionRef.current += 1;
       requestRef.current = null;
+      if (restoreFocusTimeoutRef.current !== null) {
+        window.clearTimeout(restoreFocusTimeoutRef.current);
+        restoreFocusTimeoutRef.current = null;
+      }
       document.body.style.overflow = previousBodyOverflowRef.current;
-      if (restoreFocusTimeoutRef.current !== null) window.clearTimeout(restoreFocusTimeoutRef.current);
       const previousTrigger = previousActiveElementRef.current;
       const restoreFocusVersion = requestVersionRef.current;
       restoreFocusTimeoutRef.current = window.setTimeout(() => {

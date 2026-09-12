@@ -45,6 +45,7 @@ export default function Home() {
   const healthRequestRef = useRef<AbortController | null>(null);
   const overviewRequestRef = useRef<AbortController | null>(null);
   const healthRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const healthRefreshGenerationRef = useRef(0);
   const activityRefreshInFlightRef = useRef<Promise<void> | null>(null);
   const appsRequestRef = useRef<AbortController | null>(null);
   const appsLoadVersionRef = useRef(0);
@@ -127,6 +128,7 @@ export default function Home() {
       if (response && !response.ok) await response.body?.cancel().catch(() => undefined);
       if (controller.signal.aborted || loadVersion !== appsLoadVersionRef.current) return;
       if (!response?.ok || !Array.isArray(data.apps)) throw new Error(data.error || "Unable to load applications.");
+      appsRef.current = data.apps;
       setApps(data.apps);
       setAppsError("");
     } catch (caught) {
@@ -210,17 +212,19 @@ export default function Home() {
       return;
     }
     const controller = new AbortController();
+    const generation = healthRefreshGenerationRef.current;
     healthRequestRef.current = controller;
     activeHealthRefreshesRef.current += 1;
     setRefreshing(true);
-    const refreshPromise = (async () => {
+    let refreshPromise: Promise<void> = Promise.resolve();
+    refreshPromise = (async () => {
       try {
-        const fetches = await mapWithConcurrency(checkedApps, 8, async (app) => {
+        const healthResults = await mapWithConcurrency(checkedApps, 8, async (app) => {
           const result = await fetchHealthStatus(`/api/health?id=${encodeURIComponent(app.id)}`, { signal: controller.signal });
           return { id: app.id, target: app.healthUrl || app.url, result };
         }).then((values) => values.map((value) => ({ status: "fulfilled" as const, value })))
           .catch((caught: unknown) => controller.signal.aborted ? [] : checkedApps.map(() => ({ status: "rejected" as const, reason: caught })));
-        const results = fetches;
+        const results = healthResults;
         if (controller.signal.aborted || refreshVersion !== healthRefreshVersionRef.current) return;
         const failedResults = results.filter((result) => result.status === "rejected" || (result.status === "fulfilled" && result.value.result.kind !== "valid"));
         setHealthError(failedResults.length ? `${failedResults.length} service health check${failedResults.length === 1 ? "" : "s"} failed; showing the last known status.` : "");
@@ -235,11 +239,15 @@ export default function Home() {
       } catch (caught) {
         if (!controller.signal.aborted) setHealthError(caught instanceof Error ? caught.message : "Unable to refresh service health.");
       } finally {
-        activeHealthRefreshesRef.current -= 1;
         const isCurrentRequest = healthRequestRef.current === controller;
-        if (isCurrentRequest) healthRequestRef.current = null;
-        if (!controller.signal.aborted || !isCurrentRequest) setRefreshing(activeHealthRefreshesRef.current > 0);
-        healthRefreshInFlightRef.current = null;
+        if (generation === healthRefreshGenerationRef.current) {
+          activeHealthRefreshesRef.current = Math.max(0, activeHealthRefreshesRef.current - 1);
+          if (isCurrentRequest && refreshVersion === healthRefreshVersionRef.current) {
+            healthRequestRef.current = null;
+            setRefreshing(false);
+          }
+        }
+        if (healthRefreshInFlightRef.current === refreshPromise) healthRefreshInFlightRef.current = null;
       }
     })();
     healthRefreshInFlightRef.current = refreshPromise;
@@ -290,8 +298,9 @@ export default function Home() {
       document.removeEventListener("visibilitychange", handleVisibility);
       healthRequestRef.current?.abort();
       healthRefreshVersionRef.current += 1;
+      healthRefreshGenerationRef.current += 1;
       healthRequestRef.current = null;
-      if (healthRefreshInFlightRef.current) healthRefreshInFlightRef.current = null;
+      healthRefreshInFlightRef.current = null;
       activeHealthRefreshesRef.current = 0;
     };
   }, [refreshHealth, appsLoading, apps.map((app) => `${app.id}:${app.healthUrl || app.url}:${app.casaosScheme || ""}:${app.casaosHostname || ""}:${app.casaosPortMap || ""}:${app.casaosIndex || ""}:${app.allowInsecureTls ? "insecure" : "strict"}`).join("|")]);
