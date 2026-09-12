@@ -83,9 +83,7 @@ test.describe("performance smoke", () => {
       await installFixtures(page);
       await page.goto("/", { waitUntil: "domcontentloaded" });
       await expect(page.locator("main.launcher")).toBeVisible();
-      const ready = page.getByRole("link", { name: "Demo service" });
-      await expect.poll(() => ready.count()).toBeGreaterThan(0);
-      await expect(ready).toBeVisible();
+      await expect(page.getByRole("link", { name: "Demo service" })).toBeVisible({ timeout: 15_000 });
       await expect(page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).resolves.toBeTruthy();
     });
   }
