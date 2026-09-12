@@ -1,21 +1,32 @@
 import { expect, test } from "@playwright/test";
 
-const apps = [
-  {
-    id: "demo",
-    name: "Demo service",
-    description: "A deterministic fixture",
-    category: "Other",
-    url: "https://demo.invalid",
-    icon: "",
-    color: "#b9e394",
-    status: "online",
-    source: "manual",
-    isFavorite: false,
-    isVisible: true,
-    sortOrder: 0,
-  },
-];
+type DashboardApp = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  url: string;
+  icon: string;
+  color: string;
+  status: "online" | "degraded" | "offline" | "unknown";
+  source: "manual" | "docker";
+  isVisible: boolean;
+  sortOrder: number;
+};
+
+const apps: DashboardApp[] = [{
+  id: "demo",
+  name: "Demo service",
+  description: "A deterministic fixture",
+  category: "Other",
+  url: "https://demo.invalid",
+  icon: "",
+  color: "#b9e394",
+  status: "online",
+  source: "manual",
+  isVisible: true,
+  sortOrder: 0,
+}];
 
 const overview = {
   uptime: "1h 2m",
@@ -56,8 +67,14 @@ async function installDashboardFixtures(page: import("@playwright/test").Page, f
     cpuCores: 4,
     loadAverage: { one: 0.2, five: 0.3, fifteen: 0.4 },
     sampling: false,
-    partial: false,
-    warnings: [],
+    partial: true,
+    omittedCount: 2,
+    totalCount: 3,
+    returnedCount: 1,
+    unreadableCount: 2,
+    policyOmittedCount: 0,
+    policyOmittedReason: null,
+    warnings: ["2 processes were unavailable while scanning."],
     processes: [{ name: "node", command: "node server", pid: 42, user: "dei", cpuPercent: 8, rssBytes: 1024 * 1024, memoryPercent: 1.2 }],
   } }));
   await page.route("**/api/memory/processes", (route) => route.fulfill({ json: {
@@ -66,14 +83,21 @@ async function installDashboardFixtures(page: import("@playwright/test").Page, f
     usedBytes: 3 * 1024 * 1024 * 1024,
     availableBytes: 5 * 1024 * 1024 * 1024,
     usedPercent: 37.5,
-    partial: false,
-    warnings: [],
+    partial: true,
+    omittedCount: 2,
+    totalCount: 3,
+    returnedCount: 1,
+    unreadableCount: 2,
+    policyOmittedCount: 0,
+    policyOmittedReason: null,
+    warnings: ["2 processes were unavailable while scanning."],
     processes: [{ name: "node", command: "node server", pid: 42, user: "dei", rssBytes: 1024 * 1024, memoryPercent: 1.2 }],
   } }));
 }
 
 test.describe("dashboard browser regressions", () => {
   test("serves install metadata and network-first service worker without private services", async ({ page, request }) => {
+    await installDashboardFixtures(page);
     const manifestResponse = await request.get("/manifest.webmanifest");
     expect(manifestResponse.ok()).toBeTruthy();
     const manifest = await manifestResponse.json();
@@ -103,7 +127,7 @@ test.describe("dashboard browser regressions", () => {
     }
   });
 
-  test("contains settings focus, restores the trigger, and exposes semantic toggles", async ({ page }) => {
+  test("contains settings focus, restores the trigger, and exposes the TLS toggle", async ({ page }) => {
     await installDashboardFixtures(page);
     await page.goto("/");
     const trigger = page.getByRole("button", { name: "Application management" });
@@ -112,7 +136,8 @@ test.describe("dashboard browser regressions", () => {
     await page.getByRole("button", { name: "Add", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Application details" });
     await expect(dialog).toBeVisible();
-    const toggle = page.getByRole("button", { name: "Favorite application" });
+    await expect(page.getByText(/favorite/i)).toHaveCount(0);
+    const toggle = page.getByRole("button", { name: "Allow self-signed TLS" });
     await expect(toggle).toHaveAttribute("aria-describedby", /description/);
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await toggle.press("Space");
@@ -120,7 +145,7 @@ test.describe("dashboard browser regressions", () => {
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Application management" })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(trigger).toBeFocused();
+    await expect.poll(() => page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Application management");
   });
 
   test("resynchronizes application form fields when switching records", async ({ page }) => {
@@ -147,7 +172,42 @@ test.describe("dashboard browser regressions", () => {
     await expect(dialog.getByRole("table", { name: /CPU readings/ })).toBeVisible();
     await expect(dialog.getByRole("columnheader", { name: /CPU %/ })).toHaveAttribute("aria-sort", "descending");
     await expect(dialog.getByRole("button", { name: /Sort by CPU %/ })).toBeVisible();
+    await expect(dialog.getByText(/2 unavailable/)).toBeVisible();
+    await expect(dialog.getByText("1 / 3").last()).toBeVisible();
     await page.getByRole("button", { name: "Close processor details" }).click();
+  });
+
+  test("marks the launcher and app routes as structural performance boundaries", async ({ page }) => {
+    await installDashboardFixtures(page);
+    const apiRequests: string[] = [];
+    page.on("request", (request) => {
+      if (request.url().includes("/api/")) apiRequests.push(new URL(request.url()).pathname);
+    });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.locator("main.launcher")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Demo service" })).toBeVisible();
+    await expect.poll(() => apiRequests.filter((path) => path === "/api/apps").length).toBe(1);
+    await expect(page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).resolves.toBeTruthy();
+    expect(apiRequests.filter((path) => path === "/api/health").length).toBeLessThanOrEqual(1);
+  });
+
+  test("does not poll health while hidden and refreshes when visible again", async ({ page }) => {
+    await installDashboardFixtures(page);
+    let healthRequests = 0;
+    await page.route("**/api/health**", (route) => {
+      healthRequests += 1;
+      return route.fulfill({ json: { status: "online", latency: 20, statusCode: 200 } });
+    });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("link", { name: "Demo service" })).toBeVisible();
+    const initialRequests = healthRequests;
+    await page.evaluate(() => Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" }));
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await page.waitForTimeout(100);
+    expect(healthRequests).toBe(initialRequests);
+    await page.evaluate(() => Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" }));
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect.poll(() => healthRequests).toBeGreaterThan(initialRequests);
   });
 
   test("shows an explicit offline state and retries after reconnecting", async ({ page }) => {

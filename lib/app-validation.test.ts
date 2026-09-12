@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseManagedAppPayload } from "./app-validation.ts";
+import { toDatabaseRow } from "./db-row.ts";
 
 const validApp = {
   id: "demo",
@@ -14,7 +15,6 @@ const validApp = {
   allowInsecureTls: false,
   status: "unknown",
   source: "manual",
-  isFavorite: false,
   isVisible: true,
   sortOrder: 0,
 };
@@ -34,4 +34,30 @@ test("normalizes supported application payload defaults", () => {
   assert.equal(app?.name, "Demo");
   assert.equal(app?.source, "manual");
   assert.equal(app?.icon, undefined);
+  assert.equal(Object.prototype.hasOwnProperty.call(app, "isFavorite"), false);
+});
+
+test("accepts and strips stale Favorites fields from rolling clients", () => {
+  for (const staleField of ["isFavorite", "is_favorite"]) {
+    const app = parseManagedAppPayload({ ...validApp, [staleField]: true });
+    assert.ok(app);
+    assert.equal(Object.prototype.hasOwnProperty.call(app, "isFavorite"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(app, "is_favorite"), false);
+  }
+});
+
+test("does not allow a stale favorite field into the database row", () => {
+  const row = toDatabaseRow({ ...parseManagedAppPayload(validApp)!, isFavorite: true } as Parameters<typeof toDatabaseRow>[0]);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "isFavorite"), false);
+  const snakeCaseRow = toDatabaseRow({ ...parseManagedAppPayload(validApp)!, is_favorite: true } as Parameters<typeof toDatabaseRow>[0] & { is_favorite: boolean });
+  assert.equal(Object.prototype.hasOwnProperty.call(snakeCaseRow, "is_favorite"), false);
+});
+
+test("strips both legacy Favorite spellings regardless of their value", () => {
+  for (const value of [true, false, "stale", 1, null]) {
+    const app = parseManagedAppPayload({ ...validApp, isFavorite: value, is_favorite: value });
+    assert.ok(app);
+    assert.equal("isFavorite" in app, false);
+    assert.equal("is_favorite" in app, false);
+  }
 });

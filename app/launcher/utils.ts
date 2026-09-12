@@ -20,7 +20,6 @@ export function blankApp(order: number): ManagedApp {
     allowInsecureTls: false,
     status: "unknown",
     source: "manual",
-    isFavorite: false,
     isVisible: true,
     sortOrder: order,
   };

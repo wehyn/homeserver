@@ -9,7 +9,7 @@ test("application fields use explicit labels and stable control ids", () => {
   assert.match(settingsSource, /<label htmlFor=\{titleId\}>Title<input id=\{titleId\}/);
   assert.match(settingsSource, /<label htmlFor=\{descriptionId\}>Description<input id=\{descriptionId\}/);
   assert.match(settingsSource, /aria-describedby=\{`\$\{tlsId\}-description`\}/);
-  assert.match(settingsSource, /aria-describedby=\{`\$\{favoriteId\}-description`\}/);
+  assert.doesNotMatch(settingsSource, /favorite|Favorite|Favorites|favourite/i);
   assert.doesNotMatch(settingsSource, /<label className="toggle-row">/);
 });
 

@@ -309,9 +309,73 @@ test("collapses IPv4 and IPv6 wildcard bindings for one published port", async (
   assert.deepEqual(snapshot.containers[0]?.ports, [{ containerPort: 2283, protocol: "tcp", hostIp: "0.0.0.0", hostPort: 2283 }]);
 });
 
-test("reports Docker discovery as unavailable when the socket is disabled", async () => {
+test("uses a bounded concurrent inspect window and propagates cancellation", async () => {
+  let active = 0;
+  let peak = 0;
+  const controller = new AbortController();
+  const summaries = Array.from({ length: 16 }, (_, index) => ({ Id: `container-${index}`, Names: [`/demo-${index}`], Image: "demo:latest", State: "running", Ports: [] }));
+  const snapshotPromise = collectDockerSnapshot({ socketPath: "/var/run/docker.sock", servicesRoot: "", timeoutMs: 100, signal: controller.signal, requestJson: async (path, init) => {
+    if (path === "/containers/json?all=true") return summaries;
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    active -= 1;
+    if (init?.signal?.aborted) throw new Error("aborted");
+    const id = path.split("/").at(-2);
+    return { Id: id, Name: `/${id}`, Config: {}, State: { Status: "running" } };
+  }});
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  controller.abort();
+  const snapshot = await snapshotPromise;
+  assert.equal(peak <= 8, true);
+  assert.equal(snapshot.available, true);
+  assert.equal(snapshot.status, "partial");
+  assert.match(snapshot.warnings.join(" "), /timed out|unavailable/);
+});
+
+test("reports a Compose file-cap warning when traversal reaches the limit", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nimbus-compose-limit-"));
+  try {
+    await Promise.all(Array.from({ length: 260 }, async (_, index) => {
+      const directory = join(root, `service-${index}`);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, "compose.yml"), "services:\n  app:\n    image: demo:latest\n");
+    }));
+    const result = await readComposeMetadata(root);
+    assert.equal(result.entries.length, 256);
+    assert.match(result.warnings.join(" "), /256-file limit/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reports the socket-disabled behavior", async () => {
   const snapshot = await collectDockerSnapshot({ socketPath: "", servicesRoot: "/host/services" });
   assert.equal(snapshot.available, false);
   assert.equal(snapshot.status, "unavailable");
   assert.match(snapshot.warnings[0], /socket is disabled/);
+});
+
+test("bounds Docker inspect work when the engine returns too many containers", async () => {
+  let inspectCalls = 0;
+  const summaries = Array.from({ length: 513 }, (_, index) => ({
+    Id: `container-${index}`,
+    Names: [`/demo-${index}`],
+    Image: "demo:latest",
+    State: "running",
+    Ports: [],
+  }));
+  const snapshot = await collectDockerSnapshot({
+    socketPath: "/var/run/docker.sock",
+    servicesRoot: "",
+    requestJson: async (requestPath) => {
+      if (requestPath === "/containers/json?all=true") return summaries;
+      inspectCalls += 1;
+      const id = requestPath.split("/").at(-2);
+      return { Id: id, Name: `/${id}`, Config: {}, State: { Status: "running" } };
+    },
+  });
+  assert.equal(inspectCalls, 512);
+  assert.equal(snapshot.status, "partial");
+  assert.match(snapshot.warnings.join(" "), /512-container limit/);
 });

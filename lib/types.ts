@@ -28,7 +28,6 @@ export type ManagedApp = {
   allowInsecureTls?: boolean;
   status: AppStatus;
   source: AppSource;
-  isFavorite: boolean;
   isVisible: boolean;
   sortOrder: number;
   dockerProject?: string;
@@ -99,6 +98,11 @@ export type MemorySnapshot = {
   availableBytes: number;
   usedPercent: number;
   processes: MemoryProcess[];
+  totalCount: number;
+  returnedCount: number;
+  unreadableCount: number;
+  policyOmittedCount: number;
+  policyOmittedReason: "process-limit" | "scan-limit" | "scan-and-process-limit" | null;
   partial: boolean;
   omittedCount: number;
   warnings: string[];
@@ -118,6 +122,11 @@ export type ProcessorSnapshot = {
     fifteen: number;
   };
   processes: CpuProcess[];
+  totalCount: number;
+  returnedCount: number;
+  unreadableCount: number;
+  policyOmittedCount: number;
+  policyOmittedReason: "process-limit" | "scan-limit" | "scan-and-process-limit" | null;
   sampling: boolean;
   partial: boolean;
   omittedCount: number;

@@ -13,6 +13,8 @@ test("normalizes a valid fetch response without accepting a non-OK payload", asy
   const apiError = await fetchHealthStatus("/api/health?id=demo", {
     fetcher: async () => new Response(JSON.stringify({ status: "online" }), { status: 503 }),
   });
+  assert.deepEqual(apiError, { kind: "api-error", message: "Health API returned HTTP 503." });
+
   const malformedApiError = await fetchHealthStatus("/api/health?id=demo", {
     fetcher: async () => new Response("not json", { status: 503 }),
   });
@@ -27,6 +29,31 @@ test("normalizes a valid fetch response without accepting a non-OK payload", asy
     fetcher: async () => { throw new Error("request timed out"); },
   });
   assert.deepEqual(transportError, { kind: "transport-error", message: "request timed out" });
+});
+
+test("requests browser health responses without HTTP caching", async () => {
+  let init: RequestInit | undefined;
+  const response = await fetchHealthStatus("/api/health?id=demo", {
+    fetcher: async (_url, nextInit) => {
+      init = nextInit;
+      return new Response(JSON.stringify({ status: "online", statusCode: 200 }), { status: 200, headers: { "Content-Type": "application/json" } });
+    },
+  });
+
+  assert.equal(response.kind, "valid");
+  assert.equal(init?.cache, "no-store");
+});
+
+test("cancels non-OK health response bodies without parsing them", async () => {
+  let cancelled = false;
+  const response = new Response(null, { status: 503 });
+  Object.defineProperty(response, "body", {
+    configurable: true,
+    value: { cancel: async () => { cancelled = true; } },
+  });
+  const result = await fetchHealthStatus("/api/health?id=demo", { fetcher: async () => response });
+  assert.equal(result.kind, "api-error");
+  assert.equal(cancelled, true);
 });
 
 test("accepts every status in the client health response contract", () => {

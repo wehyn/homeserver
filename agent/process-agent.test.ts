@@ -36,6 +36,69 @@ test("collectSnapshot reads memory and sorts processes by RSS", async () => {
   }
 });
 
+test("caps large process collections and reports policy-omitted counts separately", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nimbus-agent-large-"));
+  const procRoot = join(root, "proc");
+  const processCount = 520;
+  await mkdir(procRoot, { recursive: true });
+  await writeFile(join(procRoot, "meminfo"), "MemTotal:       1024 kB\nMemAvailable:    256 kB\n");
+  await Promise.all(Array.from({ length: processCount }, async (_, index) => {
+    const pid = 1000 + index;
+    const processRoot = join(procRoot, String(pid));
+    await mkdir(processRoot, { recursive: true });
+    await Promise.all([
+      writeFile(join(processRoot, "status"), `Name: process-${index}\nUid: 1000 1000 1000 1000\nVmRSS: ${index + 1} kB\n`),
+      writeFile(join(processRoot, "cmdline"), `/usr/bin/process-${index}\0`),
+    ]);
+  }));
+  const passwdPath = join(root, "passwd");
+  await writeFile(passwdPath, "developer:x:1000:1000::/home/developer:/bin/sh\n");
+
+  try {
+    const snapshot = await collectSnapshot({ procRoot, passwdPath });
+    assert.equal(snapshot.totalCount, processCount);
+    assert.equal(snapshot.returnedCount, 256);
+    assert.equal(snapshot.processes.length, 256);
+    assert.equal(snapshot.unreadableCount, 0);
+    assert.equal(snapshot.omittedCount, 0);
+    assert.equal(snapshot.policyOmittedCount, processCount - 256);
+    assert.equal(snapshot.policyOmittedReason, "process-limit");
+    assert.equal(snapshot.partial, true);
+    assert.match(snapshot.warnings.join(" "), /process limit/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("reports scan omissions once the process-directory bound is exceeded", async () => {
+  const root = await mkdtemp(join(tmpdir(), "nimbus-agent-scan-limit-"));
+  const procRoot = join(root, "proc");
+  const processCount = 1_030;
+  await mkdir(procRoot, { recursive: true });
+  await writeFile(join(procRoot, "meminfo"), "MemTotal:       1024 kB\nMemAvailable:    256 kB\n");
+  await Promise.all(Array.from({ length: processCount }, async (_, index) => {
+    const processRoot = join(procRoot, String(2000 + index));
+    await mkdir(processRoot, { recursive: true });
+    await Promise.all([
+      writeFile(join(processRoot, "status"), `Name: process-${index}\nUid: 1000 1000 1000 1000\nVmRSS: 1 kB\n`),
+      writeFile(join(processRoot, "cmdline"), `/usr/bin/process-${index}\0`),
+    ]);
+  }));
+  const passwdPath = join(root, "passwd");
+  await writeFile(passwdPath, "developer:x:1000:1000::/home/developer:/bin/sh\n");
+
+  try {
+    const snapshot = await collectSnapshot({ procRoot, passwdPath });
+    assert.equal(snapshot.totalCount, processCount);
+    assert.equal(snapshot.returnedCount, 256);
+    assert.equal(snapshot.policyOmittedCount, processCount - 256);
+    assert.equal(snapshot.policyOmittedReason, "scan-and-process-limit");
+    assert.match(snapshot.warnings.join(" "), /scan limit/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("collectSnapshot reports processes that cannot be read", async () => {
   const root = await mkdtemp(join(tmpdir(), "nimbus-agent-"));
   const procRoot = join(root, "proc");

@@ -8,39 +8,57 @@ import type { ManagedApp } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const DISCOVERY_BUDGET_MS = 750;
+
 export async function GET() {
-  const discovery = await fetchDockerDiscovery();
-  const reconciledApps = discovery.available
-    ? reconcileDockerApps(discovery.containers, { preserveUnmatched: discovery.status === "partial" })
+  const discoveryPromise = fetchDockerDiscovery();
+  let timeoutResolve: (value: null) => void = () => undefined;
+  const timeoutPromise = new Promise<null>((resolve) => { timeoutResolve = resolve; });
+  const timer = setTimeout(() => timeoutResolve(null), DISCOVERY_BUDGET_MS);
+  discoveryPromise.then(() => clearTimeout(timer), () => clearTimeout(timer));
+  const discovery = await Promise.race([discoveryPromise, timeoutPromise]);
+  void discoveryPromise.then((resolved) => {
+    if (resolved.available) reconcileDockerApps(resolved.containers, { preserveUnmatched: resolved.status === "partial" });
+  }).catch(() => undefined);
+  const docker = discovery || {
+    available: false,
+    status: "unavailable" as const,
+    warnings: ["Docker discovery is still loading."],
+    updatedAt: new Date().toISOString(),
+    containers: [],
+    composeServices: [],
+  };
+  const reconciledApps = docker.available
+    ? reconcileDockerApps(docker.containers, { preserveUnmatched: docker.status === "partial" })
     : listApps();
   const apps = reconciledApps.map((app) => {
-    const dockerDetails = resolveDockerDetails(app, discovery.containers, discovery.composeServices || []);
+    const dockerDetails = resolveDockerDetails(app, docker.containers, docker.composeServices || []);
     return dockerDetails ? { ...app, dockerDetails } : app;
   });
   return NextResponse.json({
     apps,
     docker: {
-      available: discovery.available,
-      status: discovery.status,
-      warnings: discovery.warnings,
-      updatedAt: discovery.updatedAt,
+      available: docker.available,
+      status: docker.status,
+      warnings: docker.warnings,
+      updatedAt: docker.updatedAt,
     },
-  });
+  }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function POST(request: Request) {
   const app = parseManagedAppPayload(await readJson(request));
-  if (!app) return NextResponse.json({ error: "invalid application payload" }, { status: 400 });
+  if (!app) return NextResponse.json({ error: "invalid application payload" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
   const { dockerDetails: _dockerDetails, ...persistedApp } = app;
-  return NextResponse.json({ app: saveApp({ ...persistedApp, allowInsecureTls: app.allowInsecureTls === true, source: app.source || "manual" }) });
+  return NextResponse.json({ app: saveApp({ ...persistedApp, allowInsecureTls: app.allowInsecureTls === true, source: app.source || "manual" }) }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 export async function DELETE(request: Request) {
   const payload = await readJson(request);
   const id = isRecord(payload) && typeof payload.id === "string" ? payload.id.trim() : "";
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
   removeApp(id);
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { headers: { "Cache-Control": "private, no-store" } });
 }
 
 async function readJson(request: Request): Promise<unknown> {

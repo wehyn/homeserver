@@ -1,4 +1,5 @@
 import type { AppSource, AppStatus, ManagedApp } from "./types";
+import { stripLegacyFavoriteField } from "./app-payload.ts";
 
 const appStatuses: AppStatus[] = ["online", "degraded", "offline", "unknown"];
 const appSources: AppSource[] = ["manual", "docker"];
@@ -18,7 +19,7 @@ export function parseManagedAppPayload(value: unknown): ManagedApp | null {
   if (
     !isNonEmptyString(value.id) || !isNonEmptyString(value.name) || typeof value.description !== "string"
     || !isNonEmptyString(value.category) || !isWebUrl(url) || !isHexColor(value.color)
-    || !isOneOf(value.status, appStatuses) || !isOneOf(source, appSources) || typeof value.isFavorite !== "boolean"
+    || !isOneOf(value.status, appStatuses) || !isOneOf(source, appSources)
     || typeof value.isVisible !== "boolean" || typeof value.sortOrder !== "number" || !Number.isInteger(value.sortOrder)
     || (value.allowInsecureTls !== undefined && typeof value.allowInsecureTls !== "boolean")
     || (value.casaosScheme !== undefined && value.casaosScheme !== "http" && value.casaosScheme !== "https")
@@ -29,16 +30,34 @@ export function parseManagedAppPayload(value: unknown): ManagedApp | null {
     || (value.containerHealth !== undefined && !containerHealthStates.includes(String(value.containerHealth)))
   ) return null;
 
+  const payload = stripLegacyFavoriteField(value);
   return {
-    ...value,
-    id: String(value.id).trim(),
-    name: String(value.name).trim(),
-    category: String(value.category).trim(),
+    id: String(payload.id).trim(),
+    name: String(payload.name).trim(),
+    description: String(payload.description),
+    category: String(payload.category).trim(),
     url,
     icon,
+    color: String(payload.color).trim(),
     healthUrl,
-    color: String(value.color).trim(),
+    allowInsecureTls: payload.allowInsecureTls === true,
+    status: payload.status as AppStatus,
     source,
+    isVisible: Boolean(payload.isVisible),
+    sortOrder: Number(payload.sortOrder),
+    ...(payload.dockerProject === undefined ? {} : { dockerProject: payload.dockerProject }),
+    ...(payload.dockerService === undefined ? {} : { dockerService: payload.dockerService }),
+    ...(payload.containerId === undefined ? {} : { containerId: payload.containerId }),
+    ...(payload.containerName === undefined ? {} : { containerName: payload.containerName }),
+    ...(payload.containerImage === undefined ? {} : { containerImage: payload.containerImage }),
+    ...(payload.containerState === undefined ? {} : { containerState: payload.containerState }),
+    ...(payload.containerHealth === undefined ? {} : { containerHealth: payload.containerHealth }),
+    ...(payload.containerStartedAt === undefined ? {} : { containerStartedAt: payload.containerStartedAt }),
+    ...(payload.containerObservedAt === undefined ? {} : { containerObservedAt: payload.containerObservedAt }),
+    ...(payload.casaosScheme === undefined ? {} : { casaosScheme: payload.casaosScheme }),
+    ...(payload.casaosHostname === undefined ? {} : { casaosHostname: payload.casaosHostname }),
+    ...(payload.casaosPortMap === undefined ? {} : { casaosPortMap: payload.casaosPortMap }),
+    ...(payload.casaosIndex === undefined ? {} : { casaosIndex: payload.casaosIndex }),
   } as ManagedApp;
 }
 

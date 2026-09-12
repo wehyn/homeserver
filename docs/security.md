@@ -10,6 +10,8 @@ without authentication, authorization, rate limiting, and a reviewed reverse-pro
 - Never commit credentials, private keys, tokens, private URLs, or production database files.
 - Keep SQLite data under the configured `DATABASE_PATH`; local `data/` files are runtime artifacts.
 - Preserve the existing database schema and data when making changes.
+- The legacy `apps.is_favorite` column is intentionally retained and inert; it is omitted from
+  API JSON and application writes rather than dropped or used as a hidden compatibility channel.
 
 ## Health checks and SSRF
 

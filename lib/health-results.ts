@@ -6,6 +6,16 @@ export type HealthResult = {
   status: AppStatus;
 };
 
+export function hasHealthStatusTransition(apps: ManagedApp[], results: readonly HealthResult[], checkedApps: readonly ManagedApp[]) {
+  const resultById = new Map(results.map((result) => [result.id, result]));
+  const checkedAppById = new Map(checkedApps.map((app) => [app.id, app]));
+  return apps.some((app) => {
+    const result = resultById.get(app.id);
+    const checkedApp = checkedAppById.get(app.id);
+    return Boolean(result && checkedApp && healthTarget(checkedApp) === healthTarget(app) && result.target === healthTarget(checkedApp) && app.status !== result.status);
+  });
+}
+
 export function applyHealthResults(apps: ManagedApp[], results: readonly HealthResult[], checkedApps: readonly ManagedApp[]) {
   const resultById = new Map(results.map((result) => [result.id, result]));
   const checkedAppById = new Map(checkedApps.map((app) => [app.id, app]));

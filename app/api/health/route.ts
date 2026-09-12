@@ -9,11 +9,11 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const appId = requestUrl.searchParams.get("id");
-  if (!appId) return NextResponse.json({ status: "unknown", error: "id is required" }, { status: 400 });
+  if (!appId) return NextResponse.json({ status: "unknown", error: "id is required" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
   const app = findApp(appId);
-  if (!app) return NextResponse.json({ status: "unknown", error: "application not found" }, { status: 404 });
+  if (!app) return NextResponse.json({ status: "unknown", error: "application not found" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
   const url = resolveHealthTarget(app);
-  if (!url) return NextResponse.json({ status: "unknown" }, { status: 400 });
+  if (!url) return NextResponse.json({ status: "unknown" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
   const persistenceSnapshot = getHealthPersistenceSnapshot(appId, url);
 
   try {
@@ -22,31 +22,37 @@ export async function GET(request: Request) {
     const allowInsecureTls = app.allowInsecureTls === true;
     const started = Date.now();
     const response = allowInsecureTls && target.protocol === "https:"
-      ? await requestWithInsecureTls(target)
-      : await fetchWithTimeout(target);
+      ? await requestWithInsecureTls(target, request.signal)
+      : await fetchWithTimeout(target, request.signal);
     const elapsed = Date.now() - started;
     const successful = isCasaOSHealthSuccess(response.statusCode);
     const status = (successful ? (elapsed > 1800 ? "degraded" : "online") : "degraded") as AppStatus;
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     if (persistenceSnapshot) updateAppStatusIfHealthSnapshotMatches(appId, status, persistenceSnapshot);
-    return NextResponse.json({ status, latency: elapsed, statusCode: response.statusCode });
+    return NextResponse.json({ status, latency: elapsed, statusCode: response.statusCode }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
+    if (request.signal.aborted) return new Response(null, { status: 499 });
     if (persistenceSnapshot) updateAppStatusIfHealthSnapshotMatches(appId, "offline", persistenceSnapshot);
-    return NextResponse.json({ status: "offline" });
+    return NextResponse.json({ status: "offline" }, { headers: { "Cache-Control": "private, no-store" } });
   }
 }
 
-async function fetchWithTimeout(target: URL) {
+async function fetchWithTimeout(target: URL, requestSignal: AbortSignal) {
   const controller = new AbortController();
+  const abort = () => controller.abort();
+  requestSignal.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 4500);
   try {
     const response = await fetch(target, { method: "GET", cache: "no-store", redirect: "manual", signal: controller.signal });
+    await response.body?.cancel().catch(() => undefined);
     return { statusCode: response.status };
   } finally {
     clearTimeout(timeout);
+    requestSignal.removeEventListener("abort", abort);
   }
 }
 
-function requestWithInsecureTls(target: URL) {
+function requestWithInsecureTls(target: URL, requestSignal?: AbortSignal) {
   return new Promise<{ statusCode: number }>((resolve, reject) => {
     let settled = false;
     const request = https.request(target, { method: "GET", rejectUnauthorized: false }, (response) => {
@@ -64,13 +70,19 @@ function requestWithInsecureTls(target: URL) {
       });
     });
     const timeout = setTimeout(() => request.destroy(new Error("Health check timed out")), 4500);
+    const abort = () => request.destroy(new Error("Health check aborted"));
+    requestSignal?.addEventListener("abort", abort, { once: true });
     request.once("error", (error) => {
       clearTimeout(timeout);
+      requestSignal?.removeEventListener("abort", abort);
       if (settled) return;
       settled = true;
       reject(error);
     });
-    request.once("close", () => clearTimeout(timeout));
+    request.once("close", () => {
+      clearTimeout(timeout);
+      requestSignal?.removeEventListener("abort", abort);
+    });
     request.end();
   });
 }

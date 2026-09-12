@@ -18,4 +18,5 @@ agent/dist/
 .agent-worktrees/
 .review-fixes/
 .playwright-cli/
+test-results/
 verify.png

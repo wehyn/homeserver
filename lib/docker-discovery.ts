@@ -6,6 +6,7 @@ import type {
   DockerDiscoveryResponse,
   DockerHealthState,
 } from "@/agent/docker-discovery-types";
+import { createTtlCache } from "./ttl-cache";
 
 export type {
   CasaOSWebUI,
@@ -16,23 +17,41 @@ export type {
   DockerHealthState,
 } from "@/agent/docker-discovery-types";
 
+const dockerDiscoveryCache = createTtlCache<DockerDiscoveryResponse>(2_000);
+
 export async function fetchDockerDiscovery(): Promise<DockerDiscoveryResponse> {
+  return dockerDiscoveryCache.get(loadDockerDiscovery);
+}
+
+export function clearDockerDiscoveryCache() {
+  dockerDiscoveryCache.clear();
+}
+
+async function loadDockerDiscovery(): Promise<DockerDiscoveryResponse> {
   const configuredAgentUrl = process.env.DOCKER_AGENT_URL || "";
   if (!configuredAgentUrl) return unavailable("Docker discovery is not configured.");
   const agentUrl = normalizeAgentUrl(configuredAgentUrl);
   if (!agentUrl) return unavailable("The Docker discovery agent URL is invalid.");
   const token = process.env.DOCKER_AGENT_TOKEN || process.env.MEMORY_AGENT_TOKEN || "";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
   try {
     const response = await fetch(`${agentUrl}/v1/docker/containers`, {
       cache: "no-store",
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      signal: AbortSignal.timeout(3_000),
+      signal: controller.signal,
     });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      clearTimeout(timeout);
+      return unavailable(`The Docker discovery agent is unavailable (HTTP ${response.status}).`);
+    }
     const payload: unknown = await response.json();
-    if (!response.ok) return unavailable(`The Docker discovery agent is unavailable (HTTP ${response.status}).`);
+    clearTimeout(timeout);
     if (!isDockerDiscoveryResponse(payload)) return unavailable("The Docker discovery agent returned invalid data.");
     return payload;
   } catch {
+    clearTimeout(timeout);
     return unavailable("The Docker discovery agent is unavailable.");
   }
 }

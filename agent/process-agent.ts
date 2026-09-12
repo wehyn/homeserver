@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile, readdir } from "node:fs/promises";
+import { open, opendir } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectDockerSnapshot } from "./docker-discovery.ts";
@@ -18,13 +18,21 @@ type CpuProcessRecord = ProcessRecord & {
   cpuPercent: number;
 };
 
+type PolicyOmittedReason = "process-limit" | "scan-limit" | "scan-and-process-limit" | null;
+
 export type MemorySnapshot = {
   totalBytes: number;
   usedBytes: number;
   availableBytes: number;
   usedPercent: number;
   processes: ProcessRecord[];
+  totalCount: number;
+  returnedCount: number;
+  unreadableCount: number;
+  policyOmittedCount: number;
+  policyOmittedReason: PolicyOmittedReason;
   partial: boolean;
+  /** Compatibility alias for clients that still read the old unreadable count. */
   omittedCount: number;
   warnings: string[];
   updatedAt: string;
@@ -39,11 +47,23 @@ export type ProcessorSnapshot = {
     fifteen: number;
   };
   processes: CpuProcessRecord[];
+  totalCount: number;
+  returnedCount: number;
+  unreadableCount: number;
+  policyOmittedCount: number;
+  policyOmittedReason: PolicyOmittedReason;
   sampling: boolean;
   partial: boolean;
+  /** Compatibility alias for clients that still read the old unreadable count. */
   omittedCount: number;
   warnings: string[];
   updatedAt: string;
+};
+
+type ProcessRoots = {
+  procRoot?: string;
+  passwdPath?: string;
+  signal?: AbortSignal;
 };
 
 type ProcessDetails = {
@@ -53,6 +73,12 @@ type ProcessDetails = {
   command: string;
 };
 
+type ProcessList = {
+  ids: number[];
+  totalCount: number;
+  scanOmittedCount: number;
+};
+
 type CpuSample = {
   totalTicks: number;
   idleTicks: number;
@@ -60,6 +86,8 @@ type CpuSample = {
   loadAverage: { one: number; five: number; fifteen: number };
   processTicks: Map<number, number>;
   processIds: number[];
+  totalCount: number;
+  scanOmittedCount: number;
   omittedCount: number;
   warnings: string[];
 };
@@ -72,112 +100,146 @@ const dockerToken = process.env.DOCKER_AGENT_TOKEN || sharedToken;
 const previousCpuSamples = new Map<string, CpuSample>();
 const hardwareSampler = new HardwareSampler();
 
-export async function collectSnapshot(
-  roots: { procRoot?: string; passwdPath?: string } = {},
-): Promise<MemorySnapshot> {
+const PROCESS_READ_CONCURRENCY = 32;
+const PROCESS_SCAN_LIMIT = 1_024;
+const PROCESS_RESPONSE_LIMIT = 256;
+const MAX_PROCESS_COMMAND_LENGTH = 180;
+const MAX_PROCESS_STRING_LENGTH = 180;
+const MAX_PROCESS_WARNINGS = 32;
+const MAX_PROCESS_WARNING_LENGTH = 180;
+const MAX_STATUS_BYTES = 16 * 1024;
+const MAX_COMMAND_BYTES = 4 * 1024;
+const MAX_PASSWD_BYTES = 256 * 1024;
+const MAX_PROCESS_RESPONSE_BYTES = 512 * 1024;
+
+export async function collectSnapshot(roots: ProcessRoots = {}): Promise<MemorySnapshot> {
   const currentProcRoot = roots.procRoot || procRoot;
   const currentPasswdPath = roots.passwdPath || passwdPath;
-  const warnings: string[] = [];
-  const memory = await readMemory(currentProcRoot);
-  const users = await readUsers(currentPasswdPath, warnings);
-  const processes: ProcessRecord[] = [];
-  let omittedCount = 0;
-  const processIds = await listProcessIds(currentProcRoot);
+  const signal = roots.signal;
+  throwIfAborted(signal);
 
-  const results = await Promise.all(processIds.map(async (pid) => {
+  const warnings: string[] = [];
+  const memory = await readMemory(currentProcRoot, signal);
+  const users = await readUsers(currentPasswdPath, warnings, signal);
+  const processes: ProcessRecord[] = [];
+  let unreadableCount = 0;
+  const processList = await listProcessIds(currentProcRoot, signal);
+
+  const results = await mapWithConcurrency(processList.ids, PROCESS_READ_CONCURRENCY, async (pid) => {
+    throwIfAborted(signal);
     try {
-      return await readProcess(currentProcRoot, pid, users, memory.totalBytes);
-    } catch {
+      return await readProcess(currentProcRoot, pid, users, memory.totalBytes, undefined, signal);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
       return null;
     }
-  }));
+  }, signal);
 
   for (const result of results) {
-    if (result) processes.push(result);
-    else omittedCount += 1;
+    if (result) processes.push(result as ProcessRecord);
+    else unreadableCount += 1;
   }
 
-  if (omittedCount) {
-    warnings.push(`${omittedCount} process${omittedCount === 1 ? " was" : "es were"} unavailable while scanning.`);
-  }
+  processes.sort((left, right) => right.rssBytes - left.rssBytes || left.name.localeCompare(right.name) || left.pid - right.pid);
+  const responseOmittedCount = Math.max(0, processes.length - PROCESS_RESPONSE_LIMIT);
+  const policyOmittedCount = processList.scanOmittedCount + responseOmittedCount;
+  if (unreadableCount) warnings.push(`${unreadableCount} process${unreadableCount === 1 ? " was" : "es were"} unavailable while scanning.`);
+  if (processList.scanOmittedCount) warnings.push(`${processList.scanOmittedCount} process${processList.scanOmittedCount === 1 ? " was" : "es were"} omitted by the scan limit.`);
+  if (responseOmittedCount) warnings.push(`${responseOmittedCount} process${responseOmittedCount === 1 ? " was" : "es were"} omitted by the process limit.`);
 
-  processes.sort((left, right) => right.rssBytes - left.rssBytes || left.name.localeCompare(right.name));
   return {
     ...memory,
-    processes,
-    partial: warnings.length > 0,
-    omittedCount,
-    warnings,
+    processes: processes.slice(0, PROCESS_RESPONSE_LIMIT),
+    totalCount: processList.totalCount,
+    returnedCount: Math.min(processes.length, PROCESS_RESPONSE_LIMIT),
+    unreadableCount,
+    policyOmittedCount,
+    policyOmittedReason: getPolicyOmittedReason(processList.scanOmittedCount, responseOmittedCount),
+    partial: unreadableCount > 0 || policyOmittedCount > 0 || warnings.length > 0,
+    omittedCount: unreadableCount,
+    warnings: normalizeWarnings(warnings),
     updatedAt: new Date().toISOString(),
   };
 }
 
-export async function collectProcessorSnapshot(
-  roots: { procRoot?: string; passwdPath?: string } = {},
-): Promise<ProcessorSnapshot> {
+export async function collectProcessorSnapshot(roots: ProcessRoots = {}): Promise<ProcessorSnapshot> {
   const currentProcRoot = roots.procRoot || procRoot;
   const currentPasswdPath = roots.passwdPath || passwdPath;
-  const firstSample = await readCpuSample(currentProcRoot);
-  const memory = await readMemory(currentProcRoot);
+  const signal = roots.signal;
+  throwIfAborted(signal);
+
+  const firstSample = await readCpuSample(currentProcRoot, signal);
+  const memory = await readMemory(currentProcRoot, signal);
   const baseline = previousCpuSamples.get(currentProcRoot);
   let currentSample = firstSample;
-  let sampling = !baseline;
+  const sampling = !baseline;
 
   if (!baseline) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    currentSample = await readCpuSample(currentProcRoot);
+    await delay(100, signal);
+    currentSample = await readCpuSample(currentProcRoot, signal);
   }
 
   previousCpuSamples.set(currentProcRoot, currentSample);
   const warnings = [...currentSample.warnings];
-  let omittedCount = currentSample.omittedCount;
+  let unreadableCount = currentSample.omittedCount;
   const totalDelta = currentSample.totalTicks - (baseline?.totalTicks || firstSample.totalTicks);
   const idleDelta = currentSample.idleTicks - (baseline?.idleTicks || firstSample.idleTicks);
   const cpuPercent = calculateCpuPercent(totalDelta, idleDelta);
-  const users = await readUsers(currentPasswdPath, warnings);
+  const users = await readUsers(currentPasswdPath, warnings, signal);
   const processes: CpuProcessRecord[] = [];
 
-  const results = await Promise.all(currentSample.processIds.map(async (pid) => {
+  const results = await mapWithConcurrency(currentSample.processIds, PROCESS_READ_CONCURRENCY, async (pid) => {
+    throwIfAborted(signal);
     try {
       const processTicks = currentSample.processTicks.get(pid) || 0;
       const baselineTicks = baseline?.processTicks.get(pid) || firstSample.processTicks.get(pid) || processTicks;
       const processDelta = Math.max(0, processTicks - baselineTicks);
       const processCpuPercent = calculateProcessCpuPercent(processDelta, totalDelta);
-      return await readProcess(currentProcRoot, pid, users, memory.totalBytes, processCpuPercent);
-    } catch {
+      return await readProcess(currentProcRoot, pid, users, memory.totalBytes, processCpuPercent, signal);
+    } catch (error) {
+      if (isAbortError(error)) throw error;
       return null;
     }
-  }));
+  }, signal);
 
   for (const result of results) {
     if (result) processes.push(result as CpuProcessRecord);
-    else omittedCount += 1;
+    else unreadableCount += 1;
   }
 
-  if (omittedCount) {
-    warnings.push(`${omittedCount} process${omittedCount === 1 ? " was" : "es were"} unavailable while scanning.`);
-  }
+  processes.sort((left, right) => right.cpuPercent - left.cpuPercent || left.name.localeCompare(right.name) || left.pid - right.pid);
+  const responseOmittedCount = Math.max(0, processes.length - PROCESS_RESPONSE_LIMIT);
+  const policyOmittedCount = currentSample.scanOmittedCount + responseOmittedCount;
+  if (unreadableCount) warnings.push(`${unreadableCount} process${unreadableCount === 1 ? " was" : "es were"} unavailable while scanning.`);
+  if (currentSample.scanOmittedCount) warnings.push(`${currentSample.scanOmittedCount} process${currentSample.scanOmittedCount === 1 ? " was" : "es were"} omitted by the scan limit.`);
+  if (responseOmittedCount) warnings.push(`${responseOmittedCount} process${responseOmittedCount === 1 ? " was" : "es were"} omitted by the process limit.`);
 
   return {
     cpuPercent,
     cpuCores: currentSample.cpuCores,
     loadAverage: currentSample.loadAverage,
-    processes: processes.sort((left, right) => right.cpuPercent - left.cpuPercent || left.name.localeCompare(right.name)),
+    processes: processes.slice(0, PROCESS_RESPONSE_LIMIT),
+    totalCount: currentSample.totalCount,
+    returnedCount: Math.min(processes.length, PROCESS_RESPONSE_LIMIT),
+    unreadableCount,
+    policyOmittedCount,
+    policyOmittedReason: getPolicyOmittedReason(currentSample.scanOmittedCount, responseOmittedCount),
     sampling,
-    partial: warnings.length > 0,
-    omittedCount,
-    warnings: [...new Set(warnings)],
+    partial: unreadableCount > 0 || policyOmittedCount > 0 || warnings.length > 0,
+    omittedCount: unreadableCount,
+    warnings: normalizeWarnings(warnings),
     updatedAt: new Date().toISOString(),
   };
 }
 
 export function sanitizeCommand(rawCommand: string, fallbackName: string): string {
-  const args = rawCommand.split("\0").filter(Boolean);
-  if (!args.length) return fallbackName;
+  const args = rawCommand.slice(0, MAX_COMMAND_BYTES).split("\0").filter(Boolean);
+  if (!args.length) return limitString(fallbackName, MAX_PROCESS_COMMAND_LENGTH);
 
   const sanitized: string[] = [];
   let redactNext = false;
-  for (const [index, arg] of args.entries()) {
+  for (const [index, rawArg] of args.entries()) {
+    const arg = limitString(rawArg, MAX_PROCESS_STRING_LENGTH);
     if (redactNext) {
       sanitized.push("<redacted>");
       redactNext = false;
@@ -195,26 +257,44 @@ export function sanitizeCommand(rawCommand: string, fallbackName: string): strin
   }
 
   const command = sanitized.join(" ").trim();
-  return command.length > 180 ? `${command.slice(0, 177)}...` : command || fallbackName;
+  return command.length > MAX_PROCESS_COMMAND_LENGTH ? `${command.slice(0, MAX_PROCESS_COMMAND_LENGTH - 3)}...` : command || limitString(fallbackName, MAX_PROCESS_COMMAND_LENGTH);
 }
 
-async function listProcessIds(currentProcRoot: string) {
-  let entries;
+async function listProcessIds(currentProcRoot: string, signal?: AbortSignal): Promise<ProcessList> {
+  throwIfAborted(signal);
+  let directory;
   try {
-    entries = await readdir(currentProcRoot, { withFileTypes: true });
+    directory = await opendir(currentProcRoot);
   } catch {
     throw new Error(`Unable to read process directory: ${currentProcRoot}`);
   }
-  return entries
-    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
-    .map((entry) => Number(entry.name));
+
+  const ids: number[] = [];
+  let totalCount = 0;
+  let scanOmittedCount = 0;
+  try {
+    for await (const entry of directory) {
+      throwIfAborted(signal);
+      if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+      const pid = Number(entry.name);
+      if (!Number.isSafeInteger(pid) || pid < 0) continue;
+      if (ids.length < PROCESS_SCAN_LIMIT) ids.push(pid);
+      else scanOmittedCount += 1;
+    }
+  } finally {
+    await directory.close().catch(() => undefined);
+  }
+
+  ids.sort((left, right) => left - right);
+  totalCount = ids.length + scanOmittedCount;
+  return { ids, totalCount, scanOmittedCount };
 }
 
-async function readCpuSample(currentProcRoot: string): Promise<CpuSample> {
-  const [stat, loadAverage, processIds] = await Promise.all([
-    readFile(`${currentProcRoot}/stat`, "utf8"),
-    readFile(`${currentProcRoot}/loadavg`, "utf8"),
-    listProcessIds(currentProcRoot),
+async function readCpuSample(currentProcRoot: string, signal?: AbortSignal): Promise<CpuSample> {
+  const [stat, loadAverage, processList] = await Promise.all([
+    readTextLimited(`${currentProcRoot}/stat`, MAX_STATUS_BYTES, signal),
+    readTextLimited(`${currentProcRoot}/loadavg`, MAX_STATUS_BYTES, signal),
+    listProcessIds(currentProcRoot, signal),
   ]);
   const cpuLine = stat.split("\n").find((line) => line.startsWith("cpu "));
   if (!cpuLine) throw new Error("Unable to read aggregate CPU statistics.");
@@ -224,13 +304,15 @@ async function readCpuSample(currentProcRoot: string): Promise<CpuSample> {
   const idleTicks = (cpuValues[3] || 0) + (cpuValues[4] || 0);
   const cpuCores = stat.split("\n").filter((line) => /^cpu\d+\s/.test(line)).length;
   const loadValues = loadAverage.trim().split(/\s+/).slice(0, 3).map(Number);
-  const processResults = await Promise.all(processIds.map(async (pid) => {
+  const processResults = await mapWithConcurrency(processList.ids, PROCESS_READ_CONCURRENCY, async (pid) => {
+    throwIfAborted(signal);
     try {
-      return { pid, ticks: parseProcessTicks(await readFile(`${currentProcRoot}/${pid}/stat`, "utf8")) };
-    } catch {
+      return { pid, ticks: parseProcessTicks(await readTextLimited(`${currentProcRoot}/${pid}/stat`, MAX_STATUS_BYTES, signal)) };
+    } catch (error) {
+      if (isAbortError(error)) throw error;
       return null;
     }
-  }));
+  }, signal);
   const processTicks = new Map<number, number>();
   for (const result of processResults) {
     if (result) processTicks.set(result.pid, result.ticks);
@@ -243,6 +325,8 @@ async function readCpuSample(currentProcRoot: string): Promise<CpuSample> {
     loadAverage: { one: loadValues[0] || 0, five: loadValues[1] || 0, fifteen: loadValues[2] || 0 },
     processTicks,
     processIds: [...processTicks.keys()],
+    totalCount: processList.totalCount,
+    scanOmittedCount: processList.scanOmittedCount,
     omittedCount,
     warnings: omittedCount ? [`${omittedCount} process${omittedCount === 1 ? " was" : "es were"} unavailable while sampling CPU.`] : [],
   };
@@ -270,8 +354,8 @@ export function calculateProcessCpuPercent(processDelta: number, totalDelta: num
     : 0;
 }
 
-async function readMemory(currentProcRoot: string) {
-  const meminfo = await readFile(`${currentProcRoot}/meminfo`, "utf8");
+async function readMemory(currentProcRoot: string, signal?: AbortSignal) {
+  const meminfo = await readTextLimited(`${currentProcRoot}/meminfo`, MAX_STATUS_BYTES, signal);
   const values = new Map<string, number>();
   for (const line of meminfo.split("\n")) {
     const match = /^(\w+):\s+(\d+)/.exec(line);
@@ -289,35 +373,47 @@ async function readMemory(currentProcRoot: string) {
   };
 }
 
-async function readUsers(currentPasswdPath: string, warnings: string[]) {
+async function readUsers(currentPasswdPath: string, warnings: string[], signal?: AbortSignal) {
   const users = new Map<number, string>();
   try {
-    const passwd = await readFile(currentPasswdPath, "utf8");
+    const passwd = await readTextLimited(currentPasswdPath, MAX_PASSWD_BYTES, signal);
     for (const line of passwd.split("\n")) {
       const fields = line.split(":");
       const uid = Number(fields[2]);
-      if (fields[0] && Number.isFinite(uid)) users.set(uid, fields[0]);
+      if (fields[0] && Number.isFinite(uid)) users.set(uid, limitString(fields[0], MAX_PROCESS_STRING_LENGTH));
     }
-  } catch {
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     warnings.push("Host user names are unavailable; process owners are shown as UIDs.");
   }
   return users;
 }
 
-async function readProcess(currentProcRoot: string, pid: number, users: Map<number, string>, totalBytes: number, cpuPercent?: number): Promise<ProcessRecord | CpuProcessRecord> {
-  const status = await readFile(`${currentProcRoot}/${pid}/status`, "utf8");
-  const name = readStatusValue(status, "Name") || `PID ${pid}`;
+async function readProcess(
+  currentProcRoot: string,
+  pid: number,
+  users: Map<number, string>,
+  totalBytes: number,
+  cpuPercent?: number,
+  signal?: AbortSignal,
+): Promise<ProcessRecord | CpuProcessRecord> {
+  throwIfAborted(signal);
+  const status = await readTextLimited(`${currentProcRoot}/${pid}/status`, MAX_STATUS_BYTES, signal);
+  const name = limitString(readStatusValue(status, "Name") || `PID ${pid}`, MAX_PROCESS_STRING_LENGTH);
   const parsedUid = Number((readStatusValue(status, "Uid") || "").split(/\s+/)[0]);
   const uid = Number.isInteger(parsedUid) && parsedUid >= 0 ? parsedUid : -1;
   const parsedRssKb = Number((readStatusValue(status, "VmRSS") || "0").split(/\s+/)[0]);
   const rssKb = Number.isFinite(parsedRssKb) && parsedRssKb >= 0 ? parsedRssKb : 0;
-  const command = await readFile(`${currentProcRoot}/${pid}/cmdline`, "utf8").catch(() => "");
+  const command = await readTextLimited(`${currentProcRoot}/${pid}/cmdline`, MAX_COMMAND_BYTES, signal).catch((error) => {
+    if (isAbortError(error)) throw error;
+    return "";
+  });
   const details: ProcessDetails = { name, uid, rssBytes: Math.max(0, rssKb) * 1024, command };
   return {
     pid,
     name: details.name,
     command: sanitizeCommand(details.command, details.name),
-    user: users.get(details.uid) || `uid:${details.uid}`,
+    user: limitString(users.get(details.uid) || `uid:${details.uid}`, MAX_PROCESS_STRING_LENGTH),
     rssBytes: details.rssBytes,
     memoryPercent: totalBytes ? Number(((details.rssBytes / totalBytes) * 100).toFixed(2)) : 0,
     ...(cpuPercent !== undefined ? { cpuPercent } : {}),
@@ -334,15 +430,117 @@ function toPercent(value: number) {
   return Number(bounded.toFixed(2));
 }
 
+function getPolicyOmittedReason(scanOmittedCount: number, responseOmittedCount: number): PolicyOmittedReason {
+  if (scanOmittedCount > 0 && responseOmittedCount > 0) return "scan-and-process-limit";
+  if (scanOmittedCount > 0) return "scan-limit";
+  if (responseOmittedCount > 0) return "process-limit";
+  return null;
+}
+
+function normalizeWarnings(warnings: string[]) {
+  return [...new Set(warnings)]
+    .map((warning) => limitString(warning, MAX_PROCESS_WARNING_LENGTH))
+    .slice(0, MAX_PROCESS_WARNINGS);
+}
+
+function limitString(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
+}
+
+async function readTextLimited(filePath: string, maxBytes: number, signal?: AbortSignal) {
+  throwIfAborted(signal);
+  const handle = await open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+    throwIfAborted(signal);
+    return buffer.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>, signal?: AbortSignal): Promise<R[]> {
+  if (!items.length) return [];
+  const workerCount = Math.max(1, Math.min(Math.floor(concurrency), items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      throwIfAborted(signal);
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+function delay(milliseconds: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, milliseconds);
+    if (!signal) return;
+    const abort = () => {
+      clearTimeout(timer);
+      reject(createAbortError());
+    };
+    if (signal.aborted) abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw createAbortError();
+}
+
+function createAbortError() {
+  const error = new Error("Process collection was canceled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 function isAuthorized(request: IncomingMessage, pathname: string) {
   const token = pathname === "/v1/docker/containers" ? dockerToken : sharedToken;
   if (!token) return true;
   return request.headers.authorization === `Bearer ${token}`;
 }
 
-function sendJson(response: ServerResponse, status: number, body: unknown) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  response.end(JSON.stringify(body));
+function sendJson(response: ServerResponse, status: number, body: unknown, bounded = false) {
+  let payload = JSON.stringify(body);
+  let responseStatus = status;
+  if (bounded && Buffer.byteLength(payload, "utf8") > MAX_PROCESS_RESPONSE_BYTES) {
+    payload = JSON.stringify({ error: "The process metrics response exceeded its size limit." });
+    responseStatus = 500;
+  }
+  response.writeHead(responseStatus, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": String(Buffer.byteLength(payload, "utf8")),
+  });
+  response.end(payload);
+}
+
+function createRequestLifecycle(request: IncomingMessage, response: ServerResponse) {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!response.writableEnded) controller.abort();
+  };
+  request.once("aborted", abort);
+  response.once("close", abort);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      request.removeListener("aborted", abort);
+      response.removeListener("close", abort);
+    },
+  };
 }
 
 export function startServer() {
@@ -363,17 +561,22 @@ export function startServer() {
       return;
     }
 
+    const lifecycle = requestPath === "/v1/memory/processes" || requestPath === "/v1/processor/processes"
+      ? createRequestLifecycle(request, response)
+      : null;
     try {
       const data = requestPath === "/v1/hardware"
         ? await hardwareSampler.getSnapshot()
         : requestPath === "/v1/processor/processes"
-          ? await collectProcessorSnapshot()
+          ? await collectProcessorSnapshot({ signal: lifecycle?.signal })
           : requestPath === "/v1/docker/containers"
-          ? await collectDockerSnapshot()
-          : await collectSnapshot();
-      sendJson(response, 200, data);
+            ? await collectDockerSnapshot()
+            : await collectSnapshot({ signal: lifecycle?.signal });
+      sendJson(response, 200, data, Boolean(lifecycle));
     } catch (error) {
-      sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to collect system metrics" });
+      if (!response.destroyed && !isAbortError(error)) sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to collect system metrics" });
+    } finally {
+      lifecycle?.cleanup();
     }
   });
 

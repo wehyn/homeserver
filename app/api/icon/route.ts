@@ -12,10 +12,10 @@ const fallbackIconPaths = ["/favicon.ico", "/favicon.png", "/apple-touch-icon.pn
 
 export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
 
   const app = findApp(id);
-  if (!app) return NextResponse.json({ error: "application not found" }, { status: 404 });
+  if (!app) return NextResponse.json({ error: "application not found" }, { status: 404, headers: { "Cache-Control": "private, no-store" } });
 
   try {
     const target = new URL(app.url);
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   } catch {
     // Return a normal missing resource response so the browser can use its UI fallback.
   }
-  return new NextResponse(null, { status: 404 });
+  return new NextResponse(null, { status: 404, headers: { "Cache-Control": "private, no-store" } });
 }
 
 function iconResponse(body: Buffer, contentType: string) {
