@@ -17,22 +17,111 @@ import type {
 type JsonRecord = Record<string, unknown>;
 type JsonFetcher = (path: string, init?: { signal?: AbortSignal }) => Promise<unknown>;
 
+const INSPECT_CONCURRENCY = 8;
+const MAX_DISCOVERY_TIMEOUT_MS = 10_000;
+
 export type DockerDiscoveryOptions = {
   socketPath?: string;
   servicesRoot?: string;
   requestJson?: JsonFetcher;
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 const DEFAULT_TIMEOUT_MS = 2_500;
+const COMPOSE_SCAN_MAX_FILES = 256;
+const COMPOSE_SCAN_MAX_DEPTH = 5;
+const COMPOSE_FILE_MAX_BYTES = 512 * 1024;
+const COMPOSE_DIRECTORY_ENTRY_LIMIT = 512;
+const DOCKER_CONTAINER_SCAN_LIMIT = 512;
+const MAX_DISCOVERY_WARNINGS = 64;
+const MAX_DISCOVERY_WARNING_LENGTH = 180;
 const composeFileNames = new Set(["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]);
+const composeFilePattern = /^(?:docker-)?compose(?:[-.]|$)/;
+
+type DiscoveryDeadline = {
+  signal: AbortSignal;
+  at: number;
+  dispose: () => void;
+};
+
+function throwIfDiscoveryAborted(signal?: AbortSignal, deadline?: number) {
+  if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
+}
+
+function createDiscoveryDeadline(timeoutMs: number, parentSignal?: AbortSignal): DiscoveryDeadline {
+  const controller = new AbortController();
+  const boundedTimeoutMs = Math.min(Math.max(1, timeoutMs), MAX_DISCOVERY_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), boundedTimeoutMs);
+  const abort = () => controller.abort();
+  parentSignal?.addEventListener("abort", abort, { once: true });
+  controller.signal.addEventListener("abort", () => {
+    clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abort);
+  }, { once: true });
+  return { signal: controller.signal, at: Date.now() + boundedTimeoutMs, dispose: () => {
+    clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abort);
+  } };
+}
+
+function remainingTimeout(deadline: number) {
+  return Math.max(1, deadline - Date.now());
+}
+
+function isDeadlineExpired(deadline?: number) {
+  return deadline !== undefined && deadline <= Date.now();
+}
+
+function createAbortError() {
+  const error = new Error("Docker discovery was canceled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function mapWithConcurrency<T>(items: T[], concurrency: number, mapper: (item: T) => Promise<void>) {
+  const nextIndex = { value: 0 };
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length || 1)) }, async () => {
+    while (nextIndex.value < items.length) {
+      const index = nextIndex.value;
+      nextIndex.value += 1;
+      await mapper(items[index]);
+    }
+  });
+  await Promise.all(workers);
+}
 
 export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}): Promise<DockerDiscoveryResponse> {
+  if (options.signal?.aborted) return createUnavailableDockerDiscovery("Docker discovery was canceled.", options.servicesRoot ?? process.env.DOCKER_SERVICES_ROOT ?? "/host/services", [], []);
   const socketPath = options.socketPath ?? process.env.DOCKER_SOCKET ?? "";
   const servicesRoot = options.servicesRoot ?? process.env.DOCKER_SERVICES_ROOT ?? "/host/services";
-  const metadata = await readComposeMetadata(servicesRoot);
+  if (options.signal?.aborted) {
+    return createUnavailableDockerDiscovery("Docker discovery was canceled.", servicesRoot, [], []);
+  }
+  const deadline = createDiscoveryDeadline(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, options.signal);
+  if (deadline.signal.aborted) {
+    deadline.dispose();
+    return createUnavailableDockerDiscovery("Docker discovery timed out.", servicesRoot, [], []);
+  }
+  let metadata: { entries: ComposeMetadataEntry[]; warnings: string[] };
+  try {
+    metadata = await readComposeMetadata(servicesRoot, { signal: deadline.signal, deadline: deadline.at });
+  } catch (error) {
+    if (!isAbortError(error)) throw error;
+    deadline.dispose();
+    return createUnavailableDockerDiscovery("Docker discovery timed out.", servicesRoot, [], []);
+  }
   const composeServices = metadata.entries.map(toDockerComposeService);
+  if (deadline.signal.aborted || isDeadlineExpired(deadline.at)) {
+    deadline.dispose();
+    return createUnavailableDockerDiscovery("Docker discovery timed out.", servicesRoot, composeServices, metadata.warnings);
+  }
   if (!socketPath) {
+    deadline.dispose();
     return createUnavailableDockerDiscovery(
       "Docker discovery is not configured; the Docker socket is disabled.",
       servicesRoot,
@@ -41,33 +130,48 @@ export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}
     );
   }
 
-  const requestJson = options.requestJson || ((path, init) => requestDockerSocket(socketPath, path, init?.signal, options.timeoutMs || DEFAULT_TIMEOUT_MS));
+  const requestJson = options.requestJson || ((path, init) => requestDockerSocket(socketPath, path, init?.signal, remainingTimeout(deadline.at)));
   let summaries: unknown[];
   try {
-    summaries = parseDockerContainerList(await requestJson("/containers/json?all=true"));
+    summaries = parseDockerContainerList(await requestJson("/containers/json?all=true", { signal: deadline.signal }));
   } catch (error) {
+    if (deadline.signal.aborted || isDeadlineExpired(deadline.at)) {
+      deadline.dispose();
+      return createUnavailableDockerDiscovery("Docker discovery timed out.", servicesRoot, composeServices, metadata.warnings);
+    }
+    deadline.dispose();
     return createUnavailableDockerDiscovery(`Docker discovery is unavailable: ${getErrorMessage(error)}.`, servicesRoot, composeServices, metadata.warnings);
   }
 
   const warnings = [...metadata.warnings];
   const liveWarnings: string[] = [];
+  const pushWarning = (warning: string) => {
+    warnings.push(warning);
+    liveWarnings.push(warning);
+  };
   const containers: DockerContainer[] = [];
-  for (const summary of summaries) {
+  const limitedSummaries = summaries.slice(0, DOCKER_CONTAINER_SCAN_LIMIT);
+  if (summaries.length > DOCKER_CONTAINER_SCAN_LIMIT) {
+    const warning = `Docker discovery reached its ${DOCKER_CONTAINER_SCAN_LIMIT}-container limit.`;
+    pushWarning(warning);
+  }
+  await mapWithConcurrency(limitedSummaries, INSPECT_CONCURRENCY, async (summary) => {
+    if (deadline.signal.aborted || isDeadlineExpired(deadline.at)) return;
     const id = readString(asRecord(summary)?.Id);
     if (!id) {
       const warning = "Docker returned a container without an id; it was omitted.";
-      warnings.push(warning);
-      liveWarnings.push(warning);
-      continue;
+      pushWarning(warning);
+      return;
     }
 
     let inspect: unknown;
     try {
-      inspect = await requestJson(`/containers/${encodeURIComponent(id)}/json`);
-    } catch {
+      inspect = await requestJson(`/containers/${encodeURIComponent(id)}/json`, { signal: deadline.signal });
+    } catch (error) {
+      if (isAbortError(error) || deadline.signal.aborted) return;
       const warning = `Metadata is unavailable for Docker container ${id.slice(0, 12)}.`;
-      warnings.push(warning);
-      liveWarnings.push(warning);
+      pushWarning(warning);
+      return;
     }
 
     const inspectState = asRecord(asRecord(inspect)?.State);
@@ -76,12 +180,16 @@ export async function collectDockerSnapshot(options: DockerDiscoveryOptions = {}
     if (container) containers.push(container);
     else {
       const warning = `Docker container ${id.slice(0, 12)} could not be normalized; it was omitted.`;
-      warnings.push(warning);
-      liveWarnings.push(warning);
+      pushWarning(warning);
     }
+  });
+  if (deadline.signal.aborted || isDeadlineExpired(deadline.at)) {
+    const warning = "Docker discovery timed out before all container details were read.";
+    pushWarning(warning);
   }
+  deadline.dispose();
 
-  const uniqueWarnings = [...new Set(warnings)].sort();
+  const uniqueWarnings = [...new Set(warnings)].sort().slice(0, MAX_DISCOVERY_WARNINGS).map((warning) => warning.length > MAX_DISCOVERY_WARNING_LENGTH ? `${warning.slice(0, MAX_DISCOVERY_WARNING_LENGTH - 3)}...` : warning);
   return {
     schemaVersion: 1,
     available: true,
@@ -101,6 +209,11 @@ export function createUnavailableDockerDiscovery(
   composeServices: DockerComposeService[] = [],
   additionalWarnings: string[] = [],
 ): DockerDiscoveryResponse {
+  const normalized = new Set<string>();
+  for (const candidate of [warning, ...additionalWarnings]) {
+    const trimmed = candidate.trim();
+    if (trimmed) normalized.add(trimmed.length > MAX_DISCOVERY_WARNING_LENGTH ? `${trimmed.slice(0, MAX_DISCOVERY_WARNING_LENGTH - 3)}...` : trimmed);
+  }
   return {
     schemaVersion: 1,
     available: false,
@@ -109,7 +222,7 @@ export function createUnavailableDockerDiscovery(
     servicesRoot: servicesRoot || null,
     containers: [],
     composeServices,
-    warnings: [...new Set([warning, ...additionalWarnings])],
+    warnings: [...normalized].slice(0, MAX_DISCOVERY_WARNINGS),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -178,27 +291,39 @@ export type ComposeMetadataEntry = {
   details: DockerServiceDetails;
 };
 
-export async function readComposeMetadata(root: string): Promise<{ entries: ComposeMetadataEntry[]; warnings: string[] }> {
+export async function readComposeMetadata(root: string, options: { signal?: AbortSignal; deadline?: number } = {}): Promise<{ entries: ComposeMetadataEntry[]; warnings: string[] }> {
   if (!root) return { entries: [], warnings: [] };
   const files: string[] = [];
   const warnings: string[] = [];
-  await collectComposeFiles(root, files, [], warnings);
+  try {
+    await collectComposeFiles(root, files, [], warnings, options);
+  } catch (error) {
+    if (isAbortError(error)) return { entries: [], warnings };
+    throw error;
+  }
+  if (options.signal?.aborted || isDeadlineExpired(options.deadline)) return { entries: [], warnings };
   const entries: ComposeMetadataEntry[] = [];
   for (const file of files) {
     try {
-      const text = await readFile(file, "utf8");
+      throwIfDiscoveryAborted(options.signal, options.deadline);
+      const text = await readFileLimited(file, COMPOSE_FILE_MAX_BYTES, options.signal, options.deadline);
       const parsed = parseCasaOSMetadata(text);
       const relativeFile = relative(root, file);
       const relativeParts = relativeFile.split("/");
       const project = parseComposeProject(text) || (relativeParts.length > 1 ? relativeParts[0] : basename(root)) || "unknown";
       const services = parseComposeServices(text);
       for (const service of services) {
+        throwIfDiscoveryAborted(options.signal, options.deadline);
         const details = parseComposeServiceDetails(text, service);
         entries.push({ project, service, casaos: parsed, details: addImplicitComposeNetwork(text, service, project, details) });
       }
-    } catch {
+    } catch (error) {
+      if (isAbortError(error)) return { entries, warnings };
       warnings.push(`Compose metadata is unavailable for ${relative(root, file)}.`);
     }
+  }
+  if (files.length >= COMPOSE_SCAN_MAX_FILES && !warnings.some((warning) => warning.includes(`${COMPOSE_SCAN_MAX_FILES}-file limit`))) {
+    warnings.push(`Compose metadata scan reached its ${COMPOSE_SCAN_MAX_FILES}-file limit.`);
   }
   return { entries, warnings };
 }
@@ -614,21 +739,45 @@ function splitInlineYaml(value: string) {
   return values;
 }
 
-async function collectComposeFiles(directory: string, output: string[], ancestors: string[], warnings: string[]) {
-  if (ancestors.length > 5) return;
-  let entries;
+async function collectComposeFiles(directory: string, output: string[], ancestors: string[], warnings: string[], options: { signal?: AbortSignal; deadline?: number }) {
+  if (ancestors.length > COMPOSE_SCAN_MAX_DEPTH || output.length >= COMPOSE_SCAN_MAX_FILES) return;
+  throwIfDiscoveryAborted(options.signal, options.deadline);
+  let entries: import("node:fs").Dirent[];
   try {
     entries = await readdir(directory, { withFileTypes: true });
-  } catch {
+    throwIfDiscoveryAborted(options.signal, options.deadline);
+    if (entries.length > COMPOSE_DIRECTORY_ENTRY_LIMIT) warnings.push(`Compose metadata directory scan reached its ${COMPOSE_DIRECTORY_ENTRY_LIMIT}-entry limit under ${directory}.`);
+  } catch (error) {
+    if (isAbortError(error)) throw error;
     warnings.push(`Compose metadata is unavailable under ${directory}.`);
     return;
   }
-  for (const entry of entries) {
+  for (const entry of entries.slice(0, COMPOSE_DIRECTORY_ENTRY_LIMIT)) {
+    throwIfDiscoveryAborted(options.signal, options.deadline);
     if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) await collectComposeFiles(path, output, [...ancestors, entry.name], warnings);
-    else if (entry.isFile() && composeFileNames.has(entry.name)) output.push(path);
+    if (entry.isDirectory()) await collectComposeFiles(path, output, [...ancestors, entry.name], warnings, options);
+    else if (entry.isFile() && (composeFileNames.has(entry.name) || composeFilePattern.test(entry.name))) {
+      if (output.length < COMPOSE_SCAN_MAX_FILES) output.push(path);
+      else if (!warnings.includes(`Compose metadata scan reached its ${COMPOSE_SCAN_MAX_FILES}-file limit.`)) warnings.push(`Compose metadata scan reached its ${COMPOSE_SCAN_MAX_FILES}-file limit.`);
+    }
   }
+  if (entries.length > COMPOSE_DIRECTORY_ENTRY_LIMIT) {
+    const warning = `Compose metadata directory scan reached its ${COMPOSE_DIRECTORY_ENTRY_LIMIT}-entry limit under ${directory}.`;
+    if (!warnings.includes(warning)) warnings.push(warning);
+  }
+  if (output.length >= COMPOSE_SCAN_MAX_FILES) {
+    const warning = `Compose metadata scan reached its ${COMPOSE_SCAN_MAX_FILES}-file limit.`;
+    if (!warnings.includes(warning)) warnings.push(warning);
+  }
+}
+
+async function readFileLimited(path: string, maxBytes: number, signal?: AbortSignal, deadline?: number) {
+  if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
+  const buffer = await readFile(path);
+  if (signal?.aborted || isDeadlineExpired(deadline)) throw createAbortError();
+  if (buffer.byteLength > maxBytes) throw new Error("Compose file exceeds its size limit.");
+  return buffer.toString("utf8");
 }
 
 function requestDockerSocket(socketPath: string, path: string, signal: AbortSignal | undefined, timeoutMs: number) {

@@ -41,12 +41,16 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
   const panelRef = useRef<HTMLElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+  const requestVersionRef = useRef(0);
+  const restoreFocusTimeoutRef = useRef<number | null>(null);
   const previousBodyOverflowRef = useRef("");
   const title = kind === "processor" ? "Processor" : "Memory";
   const sortLabels = kind === "processor" ? processorSortLabels : memorySortLabels;
 
   const refresh = useCallback(async () => {
     requestRef.current?.abort();
+    const requestVersion = requestVersionRef.current + 1;
+    requestVersionRef.current = requestVersion;
     const controller = new AbortController();
     requestRef.current = controller;
     setRefreshing(true);
@@ -54,13 +58,18 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
       const endpoint = kind === "processor" ? "/api/processor/processes" : "/api/memory/processes";
       const response = await fetch(endpoint, { cache: "no-store", signal: controller.signal });
       const data = await response.json().catch(() => ({})) as (MemorySnapshot | ProcessorSnapshot) & { error?: string };
-      if (!response.ok) throw new Error(data.error || `Unable to load ${title.toLowerCase()} details.`);
+      if (controller.signal.aborted || requestVersion !== requestVersionRef.current) return;
+      if (!response.ok) {
+        const errorMessage = data.error || `Unable to load ${title.toLowerCase()} details.`;
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(errorMessage);
+      }
       setSnapshot(data);
       setError("");
     } catch (caught) {
-      if (!controller.signal.aborted) setError(caught instanceof Error ? caught.message : `Unable to load ${title.toLowerCase()} details.`);
+      if (!controller.signal.aborted && requestVersion === requestVersionRef.current) setError(caught instanceof Error ? caught.message : `Unable to load ${title.toLowerCase()} details.`);
     } finally {
-      if (!controller.signal.aborted) setRefreshing(false);
+      if (requestVersion === requestVersionRef.current) setRefreshing(false);
     }
   }, [kind, title]);
 
@@ -76,10 +85,26 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
     return () => {
       window.clearInterval(interval);
       requestRef.current?.abort();
+      requestVersionRef.current += 1;
+      requestRef.current = null;
+      if (restoreFocusTimeoutRef.current !== null) {
+        window.clearTimeout(restoreFocusTimeoutRef.current);
+        restoreFocusTimeoutRef.current = null;
+      }
       document.body.style.overflow = previousBodyOverflowRef.current;
-      window.setTimeout(() => previousActiveElementRef.current?.focus(), 220);
+      const previousTrigger = previousActiveElementRef.current;
+      const restoreFocusVersion = requestVersionRef.current;
+      restoreFocusTimeoutRef.current = window.setTimeout(() => {
+        restoreFocusTimeoutRef.current = null;
+        if (restoreFocusVersion !== requestVersionRef.current) return;
+        previousTrigger?.isConnected && previousTrigger.focus();
+      }, 220);
     };
   }, [refresh]);
+
+  useEffect(() => () => {
+    if (restoreFocusTimeoutRef.current !== null) window.clearTimeout(restoreFocusTimeoutRef.current);
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -153,12 +178,12 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
       {processorSnapshot && <section className="memory-summary system-details-summary">
         <SystemSummary label="CPU usage" value={formatPercent(processorSnapshot.cpuPercent)} detail={`${processorSnapshot.cpuCores} logical cores`} tone="green" icon={<Cpu size={16} />} />
         <SystemSummary label="Load average" value={processorSnapshot.loadAverage.one.toFixed(2)} detail={`5m ${processorSnapshot.loadAverage.five.toFixed(2)} · 15m ${processorSnapshot.loadAverage.fifteen.toFixed(2)}`} tone="purple" icon={<Cpu size={16} />} />
-        <SystemSummary label="Processes" value={`${processorSnapshot.processes.length}`} detail="All readable processes" tone="blue" icon={<Cpu size={16} />} />
+        <SystemSummary label="Processes" value={`${processorSnapshot.returnedCount} / ${processorSnapshot.totalCount}`} detail={processSummaryDetail(processorSnapshot)} tone="blue" icon={<Cpu size={16} />} />
       </section>}
       {memorySnapshot && <section className="memory-summary system-details-summary">
         <SystemSummary label="Used" value={formatBytes(memorySnapshot.usedBytes)} detail={`${memorySnapshot.usedPercent}% of total`} tone="blue" icon={<Database size={16} />} />
         <SystemSummary label="Available" value={formatBytes(memorySnapshot.availableBytes, 2)} detail="Ready for workloads" tone="green" icon={<Database size={16} />} />
-        <SystemSummary label="Total" value={formatBytes(memorySnapshot.totalBytes, 2)} detail={`${memorySnapshot.processes.length} readable processes`} tone="purple" icon={<Database size={16} />} />
+        <SystemSummary label="Total" value={formatBytes(memorySnapshot.totalBytes, 2)} detail={processSummaryDetail(memorySnapshot)} tone="purple" icon={<Database size={16} />} />
       </section>}
 
       {processorSnapshot?.sampling && <SystemNotice tone="info" icon={<RefreshCw size={16} className="spin" />} title="Sampling CPU usage">The first reading establishes a baseline; the next refresh will be more representative.</SystemNotice>}
@@ -167,7 +192,7 @@ export default function SystemDetailsModal({ kind, onClose }: { kind: SystemDeta
       <MetricsHistoryChart metric={kind === "processor" ? "cpu" : "memory"} />
 
       <section className="process-card system-details-process-card">
-        <div className="card-heading"><div><div className="section-title-row"><h3>Processes</h3>{snapshot && <span className="count-pill">{snapshot.processes.length}</span>}</div><p>{kind === "processor" ? "CPU percentage is each process’s share of total system CPU." : "Resident set size is the physical RAM currently held by each process."}</p></div>{kind === "processor" ? <Cpu size={18} className="process-heading-icon" /> : <Database size={18} className="process-heading-icon" />}</div>
+        <div className="card-heading"><div><div className="section-title-row"><h3>Processes</h3>{snapshot && <span className="count-pill">{snapshot.returnedCount} / {snapshot.totalCount}</span>}</div><p>{kind === "processor" ? "CPU percentage is each process’s share of total system CPU." : "Resident set size is the physical RAM currently held by each process."}</p></div>{kind === "processor" ? <Cpu size={18} className="process-heading-icon" /> : <Database size={18} className="process-heading-icon" />}</div>
         {!snapshot && !error ? <div className="process-state" role="status" aria-live="polite"><RefreshCw size={20} className="spin" aria-hidden="true" /><span>Reading host processes…</span></div> : error && !snapshot ? <div className="process-state"><TriangleAlert size={20} aria-hidden="true" /><span>Metrics agent unavailable. Use Try again to retry.</span></div> : processes.length ? <ProcessTable kind={kind} title={title} processes={processes} sortKey={sortKey} descending={descending} sortLabels={sortLabels} changeSort={changeSort} /> : <div className="process-state"><Database size={20} aria-hidden="true" /><span>No readable processes were returned.</span></div>}
       </section>
       <div className="system-details-footer"><span><span className="sync-dot" />Live · refreshes every 5 sec</span><span>Connected locally</span></div>
@@ -210,6 +235,19 @@ function SystemSummary({ label, value, detail, tone, icon }: { label: string; va
 
 function SystemNotice({ tone, icon, title, children }: { tone: "info" | "warning"; icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return <div className={`memory-${tone} system-details-notice`}>{icon}<div><strong>{title}</strong><p>{children}</p></div></div>;
+}
+
+function processSummaryDetail(snapshot: MemorySnapshot | ProcessorSnapshot) {
+  const details = [`${snapshot.returnedCount} returned`];
+  if (snapshot.unreadableCount) details.push(`${snapshot.unreadableCount} unavailable`);
+  if (snapshot.policyOmittedCount) details.push(`${snapshot.policyOmittedCount} omitted by ${formatPolicyReason(snapshot.policyOmittedReason)}`);
+  return details.join(" · ");
+}
+
+function formatPolicyReason(reason: MemorySnapshot["policyOmittedReason"]) {
+  if (reason === "scan-limit") return "scan limit";
+  if (reason === "scan-and-process-limit") return "scan and process limits";
+  return "process limit";
 }
 
 function compareProcesses(left: CpuProcess | MemoryProcess, right: CpuProcess | MemoryProcess, key: SortKey, descending: boolean) {

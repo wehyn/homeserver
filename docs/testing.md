@@ -4,7 +4,8 @@
 
 `npm test` runs Node's built-in test runner over `agent/*.test.ts` and `lib/*.test.ts`.
 Coverage includes discovery, metrics sampling, URL handling, request validation, database-row
-mapping, and health-target construction.
+mapping, health-target construction, legacy SQLite compatibility, and short-TTL/concurrency
+helpers. `npm run build:agent` separately compiles the optional metrics agent.
 
 `npm run lint` runs `tsc --noEmit`. Despite the script name, no ESLint configuration is currently
 present.
@@ -16,7 +17,9 @@ Run the standard verification set with:
 ```bash
 npm test
 npm run lint
+npm run build:agent
 npm run build
+NODE_ENV=development npm run test:browser
 ```
 
 The project requires Node.js 24+ because it uses the built-in `node:sqlite` API.
@@ -32,16 +35,23 @@ The API routes are the main integration boundary:
 - `/api/processor/processes`
 - `/api/memory/processes`
 
+Database compatibility coverage verifies the inert legacy `apps.is_favorite` column remains readable
+and is preserved without appearing in API JSON. Activity-retention tests verify the 90-day/1,000-row
+policy without changing app or metric data.
+
 Route behavior can be checked with a temporary `DATABASE_PATH` so local application data is not
-modified.
+modified. The browser configuration always launches a fresh development server with an isolated
+`.playwright-cli/nimbus-browser-<pid>.db` path and does not reuse an unrelated server. Do not run
+browser tests against the default `data/nimbus.db`.
 
 ## Browser smoke coverage
 
-No browser E2E suite is checked in. Use the Playwright CLI against `http://localhost:3000` for
-manual or scripted smoke coverage. Check both desktop and mobile layouts, including:
+Playwright E2E coverage is checked in under `tests/` and runs with `npm run test:browser`. The
+fixtures mock operational APIs so UI tests do not contact private services or mutate the local
+database. Live route/database checks must use a temporary `DATABASE_PATH`. Check both desktop and
+mobile layouts, including:
 
 - launcher loading and service links
-- theme switching
 - application add, edit, visibility, and delete flows
 - settings modal focus, Escape, and focus restoration
 - processor and memory detail dialogs
@@ -51,8 +61,32 @@ manual or scripted smoke coverage. Check both desktop and mobile layouts, includ
 - stale history responses being aborted or ignored after range changes and refreshes
 - history chart layout at desktop width and narrow 390px/320px system-detail modals
 - sortable process tables and refresh behavior
+- large process fixtures with bounded rows, explicit returned/unreadable/policy-omitted counts,
+  bounded agent response validation, and cancellation-aware collection
 - service health refresh and error states
+- health polling pause/resume on document visibility changes
 - activity history
+- absence of the removed Favorites control/copy and JSON field
+- launcher request-count and no-page-overflow smoke checks at desktop, tablet, and mobile widths
+
+The visibility regression test changes the browser's visibility state explicitly: hidden tabs do not
+start another health request, and the next visible transition triggers a refresh.
+
+The performance smoke suite asserts structural boundaries—one initial app request, no unexpected
+health fan-out, and no page-level horizontal overflow—rather than machine-specific timing budgets.
+Health fan-out is additionally bounded to eight concurrent browser checks, activity reads are
+coalesced, and activity refresh coverage distinguishes status transitions from unchanged successful
+checks. Docker discovery tests also verify container inspection limits, cancellation, Compose file
+caps, and partial-state warnings.
+The performance smoke suite does not use `networkidle` because dashboard polling remains active.
+
+Process snapshots use a contract-valid fixture with explicit `totalCount`, `returnedCount`,
+`unreadableCount`, and `policyOmittedCount`; API validation rejects oversized arrays, inconsistent
+counts, overlong strings, and responses above 512 KiB. Agent fixtures also exercise the 1,024-entry
+scan bound, 256-row response cap, bounded concurrent reads, and cancellation signal.
+
+Playwright browser tests need Chromium (`npx playwright install --with-deps chromium`). CI sets
+Node.js 24 and runs the same isolated development-server configuration.
 
 ## Build discipline
 

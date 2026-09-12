@@ -13,7 +13,6 @@ const app: ManagedApp = {
   color: "#65e6a5",
   status: "unknown",
   source: "manual",
-  isFavorite: false,
   isVisible: true,
   sortOrder: 0,
 };

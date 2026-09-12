@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { toDatabaseRow } from "./db-row";
 import { seedApps } from "./seed";
+import { pruneActivities } from "./activity-retention";
+import { hasStaleDockerMetadata } from "./reconciliation.ts";
 import type { DockerContainer, DockerContainerState, DockerHealthState } from "./docker-discovery";
 import type { ActivityEvent, ActivityType, AppStatus, HistoricalMetric, ManagedApp } from "./types";
 import { canPersistHealthResult, createHealthPersistenceSnapshot, type HealthPersistenceRow, type HealthPersistenceSnapshot } from "./health-persistence";
@@ -31,6 +33,7 @@ function getDatabase() {
         allow_insecure_tls INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'unknown',
         source TEXT NOT NULL DEFAULT 'manual',
+        -- Legacy compatibility column. It is intentionally inert and not part of the app contract.
         is_favorite INTEGER NOT NULL DEFAULT 0,
         is_visible INTEGER NOT NULL DEFAULT 1,
         sort_order INTEGER NOT NULL DEFAULT 0,
@@ -94,8 +97,8 @@ function getDatabase() {
     database.exec("CREATE INDEX IF NOT EXISTS metric_snapshots_recorded_at_idx ON metric_snapshots (recorded_at DESC)");
     const count = database.prepare("SELECT COUNT(*) as count FROM apps").get() as { count: number };
     if (count.count === 0) {
-      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index, health_generation)
-        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex, @healthGeneration)`);
+      const insert = database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index, health_generation)
+        VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex, @healthGeneration)`);
       database.exec("BEGIN");
       try {
         seedApps.forEach((app) => insert.run({ ...toDatabaseRow(app), healthGeneration: createHealthGeneration() }));
@@ -114,7 +117,7 @@ function fromRow(row: Record<string, unknown>): ManagedApp {
     id: String(row.id), name: String(row.name), description: String(row.description), category: String(row.category),
     url: String(row.url), icon: row.icon ? String(row.icon) : undefined, color: String(row.color),
     healthUrl: row.health_url ? String(row.health_url) : undefined, allowInsecureTls: Boolean(row.allow_insecure_tls), status: row.status as ManagedApp["status"],
-    source: row.source as ManagedApp["source"], isFavorite: Boolean(row.is_favorite), isVisible: Boolean(row.is_visible), sortOrder: Number(row.sort_order),
+    source: row.source as ManagedApp["source"], isVisible: Boolean(row.is_visible), sortOrder: Number(row.sort_order),
     dockerProject: row.docker_project ? String(row.docker_project) : undefined,
     dockerService: row.docker_service ? String(row.docker_service) : undefined,
     containerId: row.container_id ? String(row.container_id) : undefined,
@@ -261,9 +264,9 @@ export function saveApp(app: ManagedApp) {
     || normalizeLinkValue(existing.docker_service) !== normalizeLinkValue(app.dockerService))) {
     persistedApp = clearDockerMetadata(persistedApp);
   }
-  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_favorite, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index, health_generation)
-    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isFavorite, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex, @healthGeneration)
-    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_favorite=@isFavorite, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex, health_generation=@healthGeneration`).run({ ...toDatabaseRow(persistedApp), healthGeneration });
+  database.prepare(`INSERT INTO apps (id, name, description, category, url, icon, color, health_url, allow_insecure_tls, status, source, is_visible, sort_order, docker_project, docker_service, container_id, container_name, container_image, container_state, container_health, container_started_at, container_observed_at, casaos_scheme, casaos_hostname, casaos_port_map, casaos_index, health_generation)
+    VALUES (@id, @name, @description, @category, @url, @icon, @color, @healthUrl, @allowInsecureTls, @status, @source, @isVisible, @sortOrder, @dockerProject, @dockerService, @containerId, @containerName, @containerImage, @containerState, @containerHealth, @containerStartedAt, @containerObservedAt, @casaosScheme, @casaosHostname, @casaosPortMap, @casaosIndex, @healthGeneration)
+    ON CONFLICT(id) DO UPDATE SET name=@name, description=@description, category=@category, url=@url, icon=@icon, color=@color, health_url=@healthUrl, allow_insecure_tls=@allowInsecureTls, status=@status, source=@source, is_visible=@isVisible, sort_order=@sortOrder, docker_project=@dockerProject, docker_service=@dockerService, container_id=@containerId, container_name=@containerName, container_image=@containerImage, container_state=@containerState, container_health=@containerHealth, container_started_at=@containerStartedAt, container_observed_at=@containerObservedAt, casaos_scheme=@casaosScheme, casaos_hostname=@casaosHostname, casaos_port_map=@casaosPortMap, casaos_index=@casaosIndex, health_generation=@healthGeneration`).run({ ...toDatabaseRow(persistedApp), healthGeneration });
   recordActivity(existing ? "app-updated" : "app-created", persistedApp.id, persistedApp.name);
   return persistedApp;
 }
@@ -272,33 +275,67 @@ export function reconcileDockerApps(containers: DockerContainer[], options: { pr
   const database = getDatabase();
   const apps = listApps();
   const claimed = new Set<string>();
-  const now = new Date().toISOString();
+  let didChange = false;
   for (const app of apps) {
     const container = findContainerForApp(app, containers, claimed);
     if (container) {
       claimed.add(container.id);
       const casaos = container.casaos;
+      const nextMetadata = {
+        dockerProject: container.compose.project || app.dockerProject || null,
+        dockerService: container.compose.service || app.dockerService || null,
+        containerId: container.id,
+        containerName: container.name,
+        containerImage: container.image,
+        containerState: container.state,
+        containerHealth: container.health,
+        containerStartedAt: container.startedAt,
+        casaosScheme: casaos?.scheme || app.casaosScheme || null,
+        casaosHostname: casaos?.hostname || app.casaosHostname || null,
+        casaosPortMap: casaos?.portMap || app.casaosPortMap || null,
+        casaosIndex: casaos?.index || app.casaosIndex || null,
+      };
+      const metadataChanged = nextMetadata.dockerProject !== (app.dockerProject || null)
+        || nextMetadata.dockerService !== (app.dockerService || null)
+        || nextMetadata.containerId !== (app.containerId || null)
+        || nextMetadata.containerName !== (app.containerName || null)
+        || nextMetadata.containerImage !== (app.containerImage || null)
+        || nextMetadata.containerState !== (app.containerState || "unknown")
+        || nextMetadata.containerHealth !== (app.containerHealth || "unknown")
+        || nextMetadata.containerStartedAt !== (app.containerStartedAt || null)
+        || nextMetadata.casaosScheme !== (app.casaosScheme || null)
+        || nextMetadata.casaosHostname !== (app.casaosHostname || null)
+        || nextMetadata.casaosPortMap !== (app.casaosPortMap || null)
+        || nextMetadata.casaosIndex !== (app.casaosIndex || null);
+      if (!metadataChanged) continue;
+      didChange = true;
       database.prepare(`UPDATE apps SET docker_project = ?, docker_service = ?, container_id = ?, container_name = ?, container_image = ?, container_state = ?, container_health = ?, container_started_at = ?, container_observed_at = ?, casaos_scheme = ?, casaos_hostname = ?, casaos_port_map = ?, casaos_index = ? WHERE id = ?`).run(
-        container.compose.project || app.dockerProject || null,
-        container.compose.service || app.dockerService || null,
-        container.id,
-        container.name,
-        container.image,
-        container.state,
-        container.health,
-        container.startedAt,
-        now,
-        casaos?.scheme || app.casaosScheme || null,
-        casaos?.hostname || app.casaosHostname || null,
-        casaos?.portMap || app.casaosPortMap || null,
-        casaos?.index || app.casaosIndex || null,
+        nextMetadata.dockerProject,
+        nextMetadata.dockerService,
+        nextMetadata.containerId,
+        nextMetadata.containerName,
+        nextMetadata.containerImage,
+        nextMetadata.containerState,
+        nextMetadata.containerHealth,
+        nextMetadata.containerStartedAt,
+        new Date().toISOString(),
+        nextMetadata.casaosScheme,
+        nextMetadata.casaosHostname,
+        nextMetadata.casaosPortMap,
+        nextMetadata.casaosIndex,
         app.id,
       );
-    } else if (!options.preserveUnmatched && (app.containerId || app.dockerProject || app.dockerService)) {
-      database.prepare(`UPDATE apps SET container_id = NULL, container_name = NULL, container_image = NULL, container_state = 'unknown', container_health = 'unknown', container_started_at = NULL, container_observed_at = ?, casaos_scheme = NULL, casaos_hostname = NULL, casaos_port_map = NULL, casaos_index = NULL WHERE id = ?`).run(now, app.id);
+    } else if (!options.preserveUnmatched && hasDockerMetadata(app)) {
+      const changed = Boolean(app.containerId || app.containerName || app.containerImage || app.containerStartedAt || app.containerObservedAt
+        || app.casaosScheme || app.casaosHostname || app.casaosPortMap || app.casaosIndex
+        || (app.containerState && app.containerState !== "unknown")
+        || (app.containerHealth && app.containerHealth !== "unknown"));
+      if (!changed) continue;
+      didChange = true;
+      database.prepare(`UPDATE apps SET container_id = NULL, container_name = NULL, container_image = NULL, container_state = 'unknown', container_health = 'unknown', container_started_at = NULL, container_observed_at = NULL, casaos_scheme = NULL, casaos_hostname = NULL, casaos_port_map = NULL, casaos_index = NULL WHERE id = ?`).run(app.id);
     }
   }
-  return listApps();
+  return didChange ? listApps() : apps;
 }
 
 export function removeApp(id: string) {
@@ -352,9 +389,12 @@ export function listMetricSnapshots(since: string): HistoricalMetric[] {
 }
 
 function recordActivity(type: ActivityType, appId: string, appName: string, status?: AppStatus) {
-  getDatabase().prepare(`INSERT INTO activities (type, app_id, app_name, status, created_at)
+  const database = getDatabase();
+  database.prepare(`INSERT INTO activities (type, app_id, app_name, status, created_at)
     VALUES (?, ?, ?, ?, ?)`).run(type, appId, appName, status ?? null, new Date().toISOString());
+  pruneActivities(database);
 }
+
 
 function addColumnIfMissing(database: DatabaseSync, columns: { name?: unknown }[], name: string, definition: string) {
   if (!columns.some((column) => column.name === name)) database.exec(`ALTER TABLE apps ADD COLUMN ${name} ${definition}`);
@@ -383,6 +423,11 @@ function clearDockerMetadata(app: ManagedApp): ManagedApp {
 
 function normalizeLinkValue(value: string | null | undefined) {
   return value?.trim() || "";
+}
+
+function hasDockerMetadata(app: ManagedApp) {
+  const clearable = hasStaleDockerMetadata(app);
+  return clearable;
 }
 
 function findContainerForApp(app: ManagedApp, containers: DockerContainer[], claimed: Set<string>) {

@@ -7,3 +7,6 @@ data
 *.db-shm
 *.db-wal
 README.md
+.env
+.env.*
+!.env.example

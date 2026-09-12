@@ -12,10 +12,10 @@ test("maps a missing application icon to a SQLite null value", () => {
     color: "#65e6a5",
     status: "unknown",
     source: "manual",
-    isFavorite: false,
     isVisible: true,
     sortOrder: 0,
   });
 
   assert.equal(row.icon, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(row, "isFavorite"), false);
 });

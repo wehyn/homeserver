@@ -27,6 +27,19 @@ sent to `/api/apps`, whose handlers delegate to the singleton `DatabaseSync` con
 `lib/db.ts`. The database creates its schema and seeds `lib/seed.ts` only when the `apps` table is
 empty.
 
+The registry, activity, overview, and health routes remain separate. Operational API responses are
+not cached by the service worker. Overview sampling uses a two-second in-process TTL with
+in-flight request coalescing; this limits duplicate host probes while preserving a fresh response
+for the five-second dashboard refresh. The response's `updatedAt` is the sampling time, not the
+time a cached response was served. Health requests explicitly use `no-store`, retain last-known
+statuses on failed checks, skip overlapping client refreshes, and run with a maximum of eight
+concurrent checks. Activity is refreshed only when a successful health cycle changes an app status.
+Docker discovery has an agent-side deadline, bounded concurrent container inspection, bounded
+Compose traversal, and a short server-side fallback budget so optional discovery cannot block the
+local application registry indefinitely.
+Health polling pauses while the document is hidden and performs one refresh when the page becomes
+visible again; overview polling retains its five-second cadence.
+
 The overview endpoint derives uptime, CPU, memory, and filesystem storage from the host. Hardware
 telemetry uses local sysfs data and can fall back to an optional hardware agent configured through
 `HARDWARE_AGENT_URL`. The health endpoint checks each configured HTTP(S) target and reports
@@ -57,6 +70,15 @@ Next.js is built as a standalone server for the container runtime. The default C
 not mount the Docker socket. Optional Docker/Compose discovery must remain read-only unless a
 separately reviewed control path is introduced.
 
+`apps.is_favorite` is retained as an inert legacy SQLite column for compatibility with existing
+files and newly initialized databases. It is not selected into `ManagedApp`, accepted as an API
+field, written by the application contract, seeded, or rendered. This release performs no
+destructive schema migration. A future physical removal requires a versioned migration with
+backup, rollback, old/new schema tests, and explicit deployment coordination. Activities and metric
+history remain separate from the application contract; metric samples retain their existing
+30-day policy. App and Docker discovery responses are private/no-store; Docker agent reads are
+short-TTL coalesced and capped to prevent repeated unbounded reconciliation work.
+
 ## Extension points
 
 - Add or edit application records through the `/api/apps` route handlers.
@@ -66,3 +88,13 @@ separately reviewed control path is introduced.
 - Use `public/` for static assets.
 
 There is currently no feature-flag system, plugin loader, or general event hook.
+Activity records are retained for 90 days and capped at the newest 1,000 rows. Pruning runs after
+activity writes, not during the five-second overview polling path. SQLite remains a single-process
+WAL-backed store; this policy does not claim multi-writer coordination.
+
+Process detail collection uses a 32-worker filesystem-read bound, scans at most 1,024 process
+directories per snapshot, and returns at most the top 256 rows after sorting. Responses expose
+`totalCount`, `returnedCount`, `unreadableCount`, and `policyOmittedCount` with a reason so a capped
+list is never presented as all readable processes. Agent responses are bounded to 512 KiB and
+cancel when the downstream request closes; the process table keeps its accessible sorting and
+partial/error states.

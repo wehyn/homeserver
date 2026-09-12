@@ -5,24 +5,56 @@ import { NextResponse } from "next/server";
 import { HardwareSampler, type HardwareSnapshot } from "@/agent/hardware";
 import { recordMetricSnapshot } from "@/lib/db";
 import { HISTORY_RETENTION_DAYS, shouldRecordSnapshot } from "@/lib/metrics-history";
+import { createTtlCache } from "@/lib/ttl-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const OVERVIEW_CACHE_TTL_MS = 2_000;
 type CpuTimes = { idle: number; total: number };
 let previousCpuTimes: CpuTimes | undefined;
 let lastHistorySnapshotAt: number | undefined;
 const localHardwareSampler = new HardwareSampler("/sys");
+const overviewCache = createTtlCache<Overview>(OVERVIEW_CACHE_TTL_MS);
+
+type Overview = {
+  uptime: string;
+  cpu: number;
+  cpuCores: number;
+  temperatureC: number | null;
+  powerWatts: number | null;
+  powerSource: "intel-rapl" | null;
+  memory: number;
+  memoryUsed: string;
+  memoryTotal: string;
+  storage: number;
+  storageUsed: string;
+  storageAvailable: string;
+  storageTotal: string;
+  network: string;
+  updatedAt: string;
+};
 
 export async function GET() {
+  const overview = await overviewCache.get(sampleOverview);
+  return NextResponse.json(overview, {
+    headers: {
+      "Cache-Control": "private, no-store",
+      "X-Nimbus-Overview-Cache": "short-ttl-coalesced",
+    },
+  });
+}
+
+async function sampleOverview(): Promise<Overview> {
   const totalMemory = os.totalmem();
   const freeMemory = os.freemem();
   const memoryUsed = totalMemory - freeMemory;
   const cpu = await getCpuUsage();
   const storage = getStorageUsage();
   const hardware = await getHardwareSnapshot();
+  const updatedAt = new Date().toISOString();
 
-  const overview = {
+  const overview: Overview = {
     uptime: formatUptime(os.uptime()),
     cpu,
     cpuCores: os.cpus().length,
@@ -37,14 +69,14 @@ export async function GET() {
     storageAvailable: formatBytes(storage.availableBytes),
     storageTotal: formatBytes(storage.totalBytes),
     network: "Local network",
-    updatedAt: new Date().toISOString(),
+    updatedAt,
   };
   const now = Date.now();
   if (shouldRecordSnapshot(lastHistorySnapshotAt, now)) {
-    recordMetricSnapshot({ timestamp: overview.updatedAt, cpu, memory: overview.memory, storage: overview.storage, temperatureC: hardware.temperatureC, powerWatts: hardware.powerWatts }, HISTORY_RETENTION_DAYS);
+    recordMetricSnapshot({ timestamp: updatedAt, cpu, memory: overview.memory, storage: overview.storage, temperatureC: hardware.temperatureC, powerWatts: hardware.powerWatts }, HISTORY_RETENTION_DAYS);
     lastHistorySnapshotAt = now;
   }
-  return NextResponse.json(overview);
+  return overview;
 }
 
 async function getHardwareSnapshot(): Promise<HardwareSnapshot> {

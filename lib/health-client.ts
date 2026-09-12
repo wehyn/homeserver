@@ -24,13 +24,16 @@ export async function fetchHealthStatus(url: string, options: HealthFetchOptions
   const fetcher = options.fetcher || fetch;
   let response: Response;
   try {
-    response = await fetcher(url, { signal: options.signal });
+    response = await fetcher(url, { cache: "no-store", signal: options.signal });
   } catch (caught) {
     if (options.signal?.aborted) throw caught;
     return classifyHealthTransportError(caught);
   }
 
-  if (!response.ok) return validateHealthResponse(response, undefined);
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    return validateHealthResponse(response, undefined);
+  }
 
   let payload: unknown;
   try {

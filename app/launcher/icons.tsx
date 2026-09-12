@@ -1,5 +1,5 @@
 import { Activity, Cloud, FolderKanban, LayoutGrid, Network, ShieldCheck, Sparkles } from "lucide-react";
-import { useState, type ComponentProps, type ComponentType, type CSSProperties } from "react";
+import { useEffect, useState, type ComponentProps, type ComponentType, type CSSProperties } from "react";
 import type { ManagedApp } from "@/lib/types";
 import { getIconSources } from "@/lib/icon-sources";
 
@@ -26,9 +26,10 @@ export function AppIcon({ app, large = false }: { app: ManagedApp; large?: boole
   const Icon = iconPalette[app.id] || LayoutGrid;
   const iconSources = getIconSources(app);
   const [failedSourceCount, setFailedSourceCount] = useState(0);
+  useEffect(() => setFailedSourceCount(0), [app.id, app.name, app.icon, app.url]);
   const iconSource = iconSources[failedSourceCount] || "";
 
   return <div className={`app-icon ${large ? "app-icon-large" : ""}`} data-app-id={app.id} style={{ "--app-color": app.color } as CSSProperties}>
-    {iconSource ? <img key={iconSource} src={iconSource} alt="" aria-hidden="true" referrerPolicy="no-referrer" onError={() => setFailedSourceCount((current) => current + 1)} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} aria-hidden="true" focusable="false" />}
+    {iconSource ? <img key={iconSource} src={iconSource} alt="" aria-hidden="true" width={large ? 144 : 40} height={large ? 144 : 40} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailedSourceCount((current) => current + 1)} /> : <Icon size={large ? 27 : 22} strokeWidth={1.8} aria-hidden="true" focusable="false" />}
   </div>;
 }

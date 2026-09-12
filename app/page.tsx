@@ -9,7 +9,8 @@ import { AddApplicationTile, LauncherTile, SystemMetric } from "@/app/launcher/l
 import { SettingsPanel } from "@/app/launcher/settings-panel";
 import { blankApp, formatPercent, formatPower, formatTemperature } from "@/app/launcher/utils";
 import { fetchHealthStatus } from "@/lib/health-client";
-import { applyHealthResults } from "@/lib/health-results";
+import { mapWithConcurrency } from "@/lib/async-work";
+import { applyHealthResults, hasHealthStatusTransition } from "@/lib/health-results";
 
 function OfflineBanner({ onRetry }: { onRetry: () => void }) {
   return <div className="offline-banner" role="status" aria-live="polite"><TriangleAlert size={16} aria-hidden="true" /><span>You’re offline. Showing the last successful data.</span><button type="button" className="small-primary" onClick={onRetry}>Retry</button></div>;
@@ -43,6 +44,11 @@ export default function Home() {
   const healthRefreshVersionRef = useRef(0);
   const healthRequestRef = useRef<AbortController | null>(null);
   const overviewRequestRef = useRef<AbortController | null>(null);
+  const healthRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const healthRefreshGenerationRef = useRef(0);
+  const activityRefreshInFlightRef = useRef<Promise<void> | null>(null);
+  const appsRequestRef = useRef<AbortController | null>(null);
+  const appsLoadVersionRef = useRef(0);
   const savedNoticeTimeoutRef = useRef<number | null>(null);
   const settingsTriggerRef = useRef<HTMLElement | null>(null);
   const systemDetailsTriggerRef = useRef<HTMLElement | null>(null);
@@ -66,10 +72,11 @@ export default function Home() {
   }, []);
 
   const openSystemDetails = useCallback((kind: SystemDetailKind) => {
+    if (settingsOpen) return;
     const activeElement = document.activeElement;
     systemDetailsTriggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
     setSystemDetails(kind);
-  }, []);
+  }, [settingsOpen]);
 
   const closeSystemDetails = useCallback(() => {
     setSystemDetails(null);
@@ -104,21 +111,33 @@ export default function Home() {
     if (savedNoticeTimeoutRef.current !== null) window.clearTimeout(savedNoticeTimeoutRef.current);
     healthRequestRef.current?.abort();
     overviewRequestRef.current?.abort();
+    appsRequestRef.current?.abort();
   }, []);
 
   const loadApps = useCallback(async () => {
+    const loadVersion = appsLoadVersionRef.current + 1;
+    appsLoadVersionRef.current = loadVersion;
+    appsRequestRef.current?.abort();
+    const controller = new AbortController();
+    appsRequestRef.current = controller;
     setAppsLoading(true);
     setAppsError("");
     try {
-      const response = await fetch("/api/apps", { cache: "no-store" }).catch(() => null);
+      const response = await fetch("/api/apps", { cache: "no-store", signal: controller.signal }).catch(() => null);
       const data = response ? await response.json().catch(() => ({})) as { apps?: ManagedApp[]; error?: string } : {};
+      if (response && !response.ok) await response.body?.cancel().catch(() => undefined);
+      if (controller.signal.aborted || loadVersion !== appsLoadVersionRef.current) return;
       if (!response?.ok || !Array.isArray(data.apps)) throw new Error(data.error || "Unable to load applications.");
+      appsRef.current = data.apps;
       setApps(data.apps);
       setAppsError("");
     } catch (caught) {
-      if (!appsRef.current.length) setAppsError(caught instanceof Error ? caught.message : "Unable to load applications.");
+      if (!controller.signal.aborted && loadVersion === appsLoadVersionRef.current && !appsRef.current.length) setAppsError(caught instanceof Error ? caught.message : "Unable to load applications.");
     } finally {
-      setAppsLoading(false);
+      if (appsRequestRef.current === controller) {
+        appsRequestRef.current = null;
+        if (!controller.signal.aborted) setAppsLoading(false);
+      }
     }
   }, []);
 
@@ -131,14 +150,21 @@ export default function Home() {
   }, [loadApps]);
 
   const refreshActivities = useCallback(async () => {
-    try {
-      const response = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
-      if (!response?.ok) return;
-      const data = await response.json() as { activities?: ActivityEvent[] };
-      if (data.activities) setActivities(data.activities);
-    } catch {
-      // Activity history is supplementary; a malformed response must not make an app mutation fail.
-    }
+    if (activityRefreshInFlightRef.current) return activityRefreshInFlightRef.current;
+    const refreshPromise = (async () => {
+      try {
+        const response = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
+        if (!response?.ok) return;
+        const data = await response.json() as { activities?: ActivityEvent[] };
+        if (data.activities) setActivities(data.activities);
+      } catch {
+        // Activity history is supplementary; a malformed response must not make an app mutation fail.
+      } finally {
+        activityRefreshInFlightRef.current = null;
+      }
+    })();
+    activityRefreshInFlightRef.current = refreshPromise;
+    return refreshPromise;
   }, []);
 
   useEffect(() => {
@@ -146,7 +172,7 @@ export default function Home() {
   }, [refreshActivities]);
 
   const refreshOverview = useCallback(async () => {
-    overviewRequestRef.current?.abort();
+    if (overviewRequestRef.current) return;
     const controller = new AbortController();
     overviewRequestRef.current = controller;
     setOverviewRefreshing(true);
@@ -177,7 +203,7 @@ export default function Home() {
   }, [refreshOverview]);
 
   const refreshHealth = useCallback(async () => {
-    healthRequestRef.current?.abort();
+    if (healthRefreshInFlightRef.current) return healthRefreshInFlightRef.current;
     const refreshVersion = healthRefreshVersionRef.current + 1;
     healthRefreshVersionRef.current = refreshVersion;
     const checkedApps = appsRef.current.filter((app) => app.healthUrl || app.url);
@@ -186,30 +212,46 @@ export default function Home() {
       return;
     }
     const controller = new AbortController();
+    const generation = healthRefreshGenerationRef.current;
     healthRequestRef.current = controller;
     activeHealthRefreshesRef.current += 1;
     setRefreshing(true);
-    try {
-      const results = await Promise.allSettled(checkedApps.map(async (app) => {
-        const result = await fetchHealthStatus(`/api/health?id=${encodeURIComponent(app.id)}`, { signal: controller.signal });
-        return { id: app.id, target: app.healthUrl || app.url, result };
-      }));
-      if (controller.signal.aborted || refreshVersion !== healthRefreshVersionRef.current) return;
-      const failedResults = results.filter((result) => result.status === "rejected" || (result.status === "fulfilled" && result.value.result.kind !== "valid"));
-      setHealthError(failedResults.length ? `${failedResults.length} service health check${failedResults.length === 1 ? "" : "s"} failed; showing the last known status.` : "");
-      const validResults = results.flatMap((result) => result.status === "fulfilled" && result.value.result.kind === "valid"
-        ? [{ id: result.value.id, target: result.value.target, status: result.value.result.response.status }]
-        : []);
-      setApps((current) => applyHealthResults(current, validResults, checkedApps));
-      if (results.some((result) => result.status === "fulfilled" && result.value.result.kind === "valid")) void refreshActivities();
-    } catch (caught) {
-      if (!controller.signal.aborted) setHealthError(caught instanceof Error ? caught.message : "Unable to refresh service health.");
-    } finally {
-      activeHealthRefreshesRef.current -= 1;
-      const isCurrentRequest = healthRequestRef.current === controller;
-      if (isCurrentRequest) healthRequestRef.current = null;
-      if (!controller.signal.aborted || !isCurrentRequest) setRefreshing(activeHealthRefreshesRef.current > 0);
-    }
+    let refreshPromise: Promise<void> = Promise.resolve();
+    refreshPromise = (async () => {
+      try {
+        const healthResults = await mapWithConcurrency(checkedApps, 8, async (app) => {
+          const result = await fetchHealthStatus(`/api/health?id=${encodeURIComponent(app.id)}`, { signal: controller.signal });
+          return { id: app.id, target: app.healthUrl || app.url, result };
+        }).then((values) => values.map((value) => ({ status: "fulfilled" as const, value })))
+          .catch((caught: unknown) => controller.signal.aborted ? [] : checkedApps.map(() => ({ status: "rejected" as const, reason: caught })));
+        const results = healthResults;
+        if (controller.signal.aborted || refreshVersion !== healthRefreshVersionRef.current) return;
+        const failedResults = results.filter((result) => result.status === "rejected" || (result.status === "fulfilled" && result.value.result.kind !== "valid"));
+        setHealthError(failedResults.length ? `${failedResults.length} service health check${failedResults.length === 1 ? "" : "s"} failed; showing the last known status.` : "");
+        const validResults = results.flatMap((result) => result.status === "fulfilled" && result.value.result.kind === "valid"
+          ? [{ id: result.value.id, target: result.value.target, status: result.value.result.response.status }]
+          : []);
+        const currentApps = appsRef.current;
+        const nextApps = applyHealthResults(currentApps, validResults, checkedApps);
+        appsRef.current = nextApps;
+        setApps(nextApps);
+        if (hasHealthStatusTransition(currentApps, validResults, checkedApps)) void refreshActivities();
+      } catch (caught) {
+        if (!controller.signal.aborted) setHealthError(caught instanceof Error ? caught.message : "Unable to refresh service health.");
+      } finally {
+        const isCurrentRequest = healthRequestRef.current === controller;
+        if (generation === healthRefreshGenerationRef.current) {
+          activeHealthRefreshesRef.current = Math.max(0, activeHealthRefreshesRef.current - 1);
+          if (isCurrentRequest && refreshVersion === healthRefreshVersionRef.current) {
+            healthRequestRef.current = null;
+            setRefreshing(false);
+          }
+        }
+        if (healthRefreshInFlightRef.current === refreshPromise) healthRefreshInFlightRef.current = null;
+      }
+    })();
+    healthRefreshInFlightRef.current = refreshPromise;
+    return refreshPromise;
   }, [refreshActivities]);
 
   useEffect(() => {
@@ -244,8 +286,23 @@ export default function Home() {
   useEffect(() => {
     if (appsLoading) return;
     void refreshHealth();
-    const interval = window.setInterval(() => void refreshHealth(), 30_000);
-    return () => window.clearInterval(interval);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void refreshHealth();
+    };
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshHealth();
+    }, 30_000);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      healthRequestRef.current?.abort();
+      healthRefreshVersionRef.current += 1;
+      healthRefreshGenerationRef.current += 1;
+      healthRequestRef.current = null;
+      healthRefreshInFlightRef.current = null;
+      activeHealthRefreshesRef.current = 0;
+    };
   }, [refreshHealth, appsLoading, apps.map((app) => `${app.id}:${app.healthUrl || app.url}:${app.casaosScheme || ""}:${app.casaosHostname || ""}:${app.casaosPortMap || ""}:${app.casaosIndex || ""}:${app.allowInsecureTls ? "insecure" : "strict"}`).join("|")]);
 
   const modalOpen = settingsOpen || systemDetails !== null;
