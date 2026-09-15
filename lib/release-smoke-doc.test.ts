@@ -28,8 +28,14 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
   assert.match(script, /export SMOKE_PORT=10001/);
   assert.match(script, /export NIMBUS_BIND_ADDRESS=127\.0\.0\.1/);
   assert.match(script, /export NIMBUS_PORT=\$SMOKE_PORT/);
-  assert.match(script, /curl --fail --silent --show-error "\$SMOKE_URL\/api\/apps"/);
-  assert.match(script, /curl --fail --silent --show-error "\$SMOKE_URL\/api\/overview"/);
+  assert.match(script, /smoke_dir="\$\(mktemp -d "\$\{TMPDIR:-\/tmp\}\/nimbus-release-smoke\./);
+  assert.match(script, /curl --fail --silent --show-error --connect-timeout 2 --max-time 10/);
+  assert.doesNotMatch(script, /\/tmp\/nimbus-smoke/);
+  assert.match(script, /compose_config="\$smoke_dir\/compose\.yaml"/);
+  assert.match(script, /docker compose -f docker-compose\.yml -p "\$SMOKE_PROJECT" config > "\$compose_config"/);
+  assert.match(script, /grep -Fq "DATABASE_PATH: \/app\/data\/nimbus\.db" "\$compose_config"/);
+  assert.match(script, /grep -Fq "nimbus-data:" "\$compose_config"/);
+  assert.match(script, /rm -rf -- "\$smoke_dir"/);
   assert.match(script, /manifest\.webmanifest/);
   assert.match(script, /sw\.js/);
   assert.match(script, /data\.apps\.length !== 8/);
@@ -45,19 +51,26 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
   assert.match(smoke, /read_only: true/);
   assert.match(smoke, /a human\s+reviewer must explicitly accept/);
   assert.doesNotMatch(script, /\brg\b/);
+  assert.doesNotMatch(script, /COMPOSE_FILE/);
+  assert.doesNotMatch(script, /rm -f/);
+
+  for (const composeCommand of script.match(/^\s*docker compose.*$/gm) ?? []) {
+    assert.match(composeCommand, /-f docker-compose\.yml/);
+  }
 
   assertScriptOrder(
     'test -d "$HOME/services"',
-    'docker compose -p "$SMOKE_PROJECT" config --quiet',
+    'docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" config --quiet',
     "existing_containers=",
     "existing_volumes=",
     "existing_networks=",
     "cleanup() {",
     "trap cleanup EXIT",
-    'docker compose -p "$SMOKE_PROJECT" up -d --build',
+    'docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" config > "$compose_config"',
+    'docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" up -d --build',
     "  -X POST \\\n",
-    'docker compose -p "$SMOKE_PROJECT" down --remove-orphans',
-    'docker compose -p "$SMOKE_PROJECT" up -d\n\nrm -f /tmp/nimbus-smoke-apps-after-restart.json',
+    'docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" down --remove-orphans',
+    'docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" up -d\n',
     "agent_container=",
     'test -n "$agent_container"',
     "if ! mounts=",
@@ -80,13 +93,17 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
   assert.ok(cleanupEnd > cleanupStart);
   assert.ok(collisionStart < cleanupStart);
   assert.ok(collisionEnd < cleanupStart);
+  const tempDirStart = script.indexOf('smoke_dir="$(mktemp -d');
+  assert.ok(tempDirStart > collisionEnd);
+  assert.ok(tempDirStart < cleanupStart);
   const cleanupBlock = script.slice(cleanupStart, cleanupEnd);
   assert.match(cleanupBlock, /cleanup\(\) \{\n  exit_code=\$\?/);
-  assert.match(cleanupBlock, /docker compose -p "\$SMOKE_PROJECT" down --volumes --remove-orphans \|\| true/);
+  assert.match(cleanupBlock, /docker compose -f docker-compose\.yml -p "\$SMOKE_PROJECT" down --volumes --remove-orphans \|\| true/);
+  assert.match(cleanupBlock, /rm -rf -- "\$smoke_dir"/);
   assert.match(cleanupBlock, /exit "\$exit_code"/);
 
-  const postStart = script.indexOf("curl --fail --silent --show-error \\\n  -X POST");
-  const postEnd = script.indexOf('\n\ndocker compose -p "$SMOKE_PROJECT" down --remove-orphans', postStart);
+  const postStart = script.indexOf("curl --fail --silent --show-error --connect-timeout 2 --max-time 10 \\\n  -X POST");
+  const postEnd = script.indexOf('\n\ndocker compose -f docker-compose.yml -p "$SMOKE_PROJECT" down --remove-orphans', postStart);
   assert.ok(postStart >= 0);
   assert.ok(postEnd > postStart);
   const postBlock = script.slice(postStart, postEnd);

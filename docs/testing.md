@@ -7,6 +7,9 @@ Coverage includes discovery, metrics sampling, URL handling, request validation,
 mapping, health-target construction, legacy SQLite compatibility, and short-TTL/concurrency
 helpers. `npm run build:agent` separately compiles the optional metrics agent.
 
+`npm run audit` checks the dependency tree at the high/critical advisory threshold and must pass
+before release verification.
+
 `npm run lint` runs `tsc --noEmit`. Despite the script name, no ESLint configuration is currently
 present.
 
@@ -15,6 +18,7 @@ present.
 Run the standard verification set with:
 
 ```bash
+npm run audit
 npm test
 npm run lint
 npm run build:agent

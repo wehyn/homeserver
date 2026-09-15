@@ -30,7 +30,7 @@ case "$SMOKE_PROJECT" in
 esac
 
 test -d "$HOME/services"
-docker compose -p "$SMOKE_PROJECT" config --quiet
+docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" config --quiet
 
 existing_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$SMOKE_PROJECT")"
 existing_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$SMOKE_PROJECT")"
@@ -40,58 +40,68 @@ if [ -n "$existing_containers" ] || [ -n "$existing_volumes" ] || [ -n "$existin
   exit 1
 fi
 
+smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/nimbus-release-smoke.XXXXXX")"
+compose_config="$smoke_dir/compose.yaml"
+apps_json="$smoke_dir/apps.json"
+overview_json="$smoke_dir/overview.json"
+save_json="$smoke_dir/save.json"
+apps_after_restart_json="$smoke_dir/apps-after-restart.json"
+
 cleanup() {
   exit_code=$?
   if [ "$exit_code" -ne 0 ]; then
-    docker compose -p "$SMOKE_PROJECT" logs --no-color || true
+    docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" logs --no-color || true
   fi
-  docker compose -p "$SMOKE_PROJECT" down --volumes --remove-orphans || true
+  docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" down --volumes --remove-orphans || true
+  rm -rf -- "$smoke_dir"
   exit "$exit_code"
 }
 trap cleanup EXIT
-docker compose -p "$SMOKE_PROJECT" up -d --build
+docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" config > "$compose_config"
+test -s "$compose_config"
+grep -Fq "DATABASE_PATH: /app/data/nimbus.db" "$compose_config"
+grep -Fq "nimbus-data:" "$compose_config"
+docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" up -d --build
 
-rm -f /tmp/nimbus-smoke-apps.json
 ready=false
 for attempt in $(seq 1 60); do
-  if curl --fail --silent --show-error "$SMOKE_URL/api/apps" > /tmp/nimbus-smoke-apps.json; then
+  if curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "$SMOKE_URL/api/apps" > "$apps_json"; then
     ready=true
     break
   fi
   sleep 2
 done
 test "$ready" = true
-test -s /tmp/nimbus-smoke-apps.json
+test -s "$apps_json"
 
-curl --fail --silent --show-error "$SMOKE_URL/manifest.webmanifest" > /dev/null
-curl --fail --silent --show-error "$SMOKE_URL/sw.js" > /dev/null
-curl --fail --silent --show-error "$SMOKE_URL/api/overview" > /tmp/nimbus-smoke-overview.json
+curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "$SMOKE_URL/manifest.webmanifest" > /dev/null
+curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "$SMOKE_URL/sw.js" > /dev/null
+curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "$SMOKE_URL/api/overview" > "$overview_json"
 
-node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync("/tmp/nimbus-smoke-apps.json", "utf8")); if (!Array.isArray(data.apps) || data.apps.length !== 8) process.exit(1);'
+APPS_JSON="$apps_json" node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync(process.env.APPS_JSON, "utf8")); if (!Array.isArray(data.apps) || data.apps.length !== 8) process.exit(1);'
 
-curl --fail --silent --show-error \
+curl --fail --silent --show-error --connect-timeout 2 --max-time 10 \
   -X POST \
   -H "Content-Type: application/json" \
   --data '{"id":"release-smoke","name":"Release Smoke","description":"Temporary release verification","category":"Other","url":"https://example.invalid","color":"#65e6a5","status":"unknown","source":"manual","isVisible":true,"sortOrder":999}' \
-  "$SMOKE_URL/api/apps" > /tmp/nimbus-smoke-save.json
+  "$SMOKE_URL/api/apps" > "$save_json"
 
-docker compose -p "$SMOKE_PROJECT" down --remove-orphans
-docker compose -p "$SMOKE_PROJECT" up -d
+docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" down --remove-orphans
+docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" up -d
 
-rm -f /tmp/nimbus-smoke-apps-after-restart.json
 ready=false
 for attempt in $(seq 1 60); do
-  if curl --fail --silent --show-error "$SMOKE_URL/api/apps" > /tmp/nimbus-smoke-apps-after-restart.json; then
+  if curl --fail --silent --show-error --connect-timeout 2 --max-time 10 "$SMOKE_URL/api/apps" > "$apps_after_restart_json"; then
     ready=true
     break
   fi
   sleep 2
 done
 test "$ready" = true
-test -s /tmp/nimbus-smoke-apps-after-restart.json
-node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync("/tmp/nimbus-smoke-apps-after-restart.json", "utf8")); if (!data.apps.some((app) => app.id === "release-smoke")) process.exit(1);'
+test -s "$apps_after_restart_json"
+APPS_JSON="$apps_after_restart_json" node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync(process.env.APPS_JSON, "utf8")); if (!data.apps.some((app) => app.id === "release-smoke")) process.exit(1);'
 
-agent_container="$(docker compose -p "$SMOKE_PROJECT" ps -q metrics-agent)"
+agent_container="$(docker compose -f docker-compose.yml -p "$SMOKE_PROJECT" ps -q metrics-agent)"
 test -n "$agent_container"
 if ! mounts="$(docker inspect "$agent_container" --format '{{json .Mounts}}')"; then
   echo "could not inspect the metrics-agent container" >&2
@@ -107,10 +117,14 @@ esac
 
 The project identifier uses Linux nanosecond time and is checked for existing Compose-labeled
 containers, volumes, and networks before the cleanup trap is installed. The `EXIT` trap logs
-failures and runs `down --volumes --remove-orphans`. This cleanup is safe for release smoke
+failures, runs `down --volumes --remove-orphans`, and removes the private `mktemp` output directory.
+Every default-stack command names `docker-compose.yml` explicitly, so an ambient `COMPOSE_FILE`
+cannot redirect the smoke run to another topology. The rendered configuration is checked for the
+expected database path and named data volume before startup. This cleanup is safe for release smoke
 validation because the project name is validated to use the unique `nimbus-release-smoke-` prefix
 and the smoke stack owns its throwaway resources. It is deliberately project-scoped and must not be
-adapted to target a production project.
+adapted to target a production project. Readiness and route requests use short connect and maximum
+time limits so a hung service cannot leave an individual `curl` blocked indefinitely.
 
 ## Optional Docker-socket review
 
