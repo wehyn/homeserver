@@ -44,6 +44,7 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
   assert.match(script, /var\/run\/docker\.sock/);
   assert.match(smoke, /read_only: true/);
   assert.match(smoke, /a human\s+reviewer must explicitly accept/);
+  assert.doesNotMatch(script, /\brg\b/);
 
   assertScriptOrder(
     'test -d "$HOME/services"',
@@ -60,11 +61,39 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
     "agent_container=",
     'test -n "$agent_container"',
     "if ! mounts=",
-    "if printf",
+    'case "$mounts" in',
   );
 
+  const collisionStart = script.indexOf('if [ -n "$existing_containers" ]');
+  const collisionEnd = script.indexOf("\nfi", collisionStart);
+  assert.ok(collisionStart >= 0);
+  assert.ok(collisionEnd > collisionStart);
+  const collisionBlock = script.slice(collisionStart, collisionEnd);
+  assert.match(collisionBlock, /\$existing_containers/);
+  assert.match(collisionBlock, /\$existing_volumes/);
+  assert.match(collisionBlock, /\$existing_networks/);
+  assert.match(collisionBlock, /exit 1/);
+
+  const cleanupStart = script.indexOf("cleanup() {");
+  const cleanupEnd = script.indexOf("\n}\ntrap cleanup EXIT", cleanupStart);
+  assert.ok(cleanupStart >= 0);
+  assert.ok(cleanupEnd > cleanupStart);
+  const cleanupBlock = script.slice(cleanupStart, cleanupEnd);
+  assert.match(cleanupBlock, /docker compose -p "\$SMOKE_PROJECT" down --volumes --remove-orphans \|\| true/);
+  assert.match(cleanupBlock, /exit "\$exit_code"/);
+
+  const postStart = script.indexOf("curl --fail --silent --show-error \\\n  -X POST");
+  const postEnd = script.indexOf('\n\ndocker compose -p "$SMOKE_PROJECT" down --remove-orphans', postStart);
+  assert.ok(postStart >= 0);
+  assert.ok(postEnd > postStart);
+  const postBlock = script.slice(postStart, postEnd);
+  assert.match(postBlock, /-X POST/);
+  assert.match(postBlock, /-H "Content-Type: application\/json"/);
+  assert.match(postBlock, /--data '\{"id":"release-smoke"/);
+  assert.match(postBlock, /\$SMOKE_URL\/api\/apps/);
+
   const inspectStart = script.indexOf("if ! mounts=");
-  const inspectEnd = script.indexOf("if printf", inspectStart);
+  const inspectEnd = script.indexOf('case "$mounts" in', inspectStart);
   assert.ok(inspectStart >= 0);
   assert.ok(inspectEnd > inspectStart);
   const inspectBlock = script.slice(inspectStart, inspectEnd);
@@ -72,6 +101,14 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
   assert.match(inspectBlock, /could not inspect the metrics-agent container/);
   assert.match(inspectBlock, /exit 1/);
   assert.match(inspectBlock, /fi/);
+
+  const socketStart = script.indexOf('case "$mounts" in');
+  const socketEnd = script.indexOf("esac", socketStart);
+  assert.ok(socketStart >= 0);
+  assert.ok(socketEnd > socketStart);
+  const socketBlock = script.slice(socketStart, socketEnd);
+  assert.match(socketBlock, /\/var\/run\/docker\.sock/);
+  assert.match(socketBlock, /exit 1/);
 
   assert.match(optionalScript, /DOCKER_SOCKET=\/var\/run\/docker\.sock/);
   assert.match(optionalScript, /docker compose -f docker-compose\.yml -f docker-compose\.docker\.yml config/);

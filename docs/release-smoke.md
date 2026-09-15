@@ -97,10 +97,12 @@ if ! mounts="$(docker inspect "$agent_container" --format '{{json .Mounts}}')"; 
   echo "could not inspect the metrics-agent container" >&2
   exit 1
 fi
-if printf '%s' "$mounts" | rg -q '/var/run/docker.sock'; then
-  echo "default Compose unexpectedly mounted the Docker socket" >&2
-  exit 1
-fi
+case "$mounts" in
+  *"/var/run/docker.sock"*)
+    echo "default Compose unexpectedly mounted the Docker socket" >&2
+    exit 1
+    ;;
+esac
 ```
 
 The project identifier uses Linux nanosecond time and is checked for existing Compose-labeled
