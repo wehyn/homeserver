@@ -39,7 +39,7 @@ The dashboard-performance implementation is complete on main. The following item
 | Browser startup and database isolation | Complete | Playwright owns a fresh development server and isolated database. |
 | Domain and metrics-agent CI gates | Complete | CI runs npm test and npm run build:agent. |
 | Structural browser performance checks | Complete | Request fan-out and viewport boundaries are checked without machine-specific timing budgets. |
-| Open-source license | Release task | MIT is selected, but the exact copyright-holder line still requires owner confirmation before LICENSE is created. |
+| Open-source license | Complete | MIT is tracked in LICENSE and package metadata; README points to the full license text. |
 | Dependency audit | Complete | npm run audit passed with zero vulnerabilities; the high/critical policy is enforced by the CI Dependency audit job. |
 | Docker deployment smoke test | Complete | docs/release-smoke.md passed on a unique throwaway project with route, persistence, socket, and cleanup checks. |
 
