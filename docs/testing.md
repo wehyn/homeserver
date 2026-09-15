@@ -88,6 +88,8 @@ scan bound, 256-row response cap, bounded concurrent reads, and cancellation sig
 Playwright browser tests need Chromium (`npx playwright install --with-deps chromium`). CI sets
 Node.js 24 and runs the same isolated development-server configuration.
 
+The domain suite contains legacy-database tests that start temporary Next servers, and the browser suite starts another Next server. Run these commands serially in one worktree: concurrent Next processes can write the shared .next/ directory and produce missing vendor chunks or cross-test database results. CI jobs are isolated and may run in parallel on separate workers.
+
 ## Build discipline
 
 Stop any running `next dev` process before `npm run build`; concurrent access to `.next/` can
