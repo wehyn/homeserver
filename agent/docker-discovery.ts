@@ -919,12 +919,14 @@ function uniqueEnvironment(environment: DockerEnvironmentVariable[]) {
 
 function redactEnvironmentValue(name: string, value: string) {
   if (!value) return value;
-  if (/(?:pass(?:word|wd)?|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|credential|auth|encrypt|database|dsn|connection|config)/i.test(name)) return "<redacted>";
+  if (/(?:pass(?:word|wd)?|secret|token|api[-_]?key|access[-_]?key|private[-_]?key|credential|auth|encrypt|database|dsn|connection|config|sign(?:ing)?|master|license|app[-_]?key|webhook)/i.test(name)) return "<redacted>";
   try {
     const url = new URL(value);
-    if (url.username || url.password) {
-      url.username = "***";
-      url.password = "***";
+    if (url.username || url.password || [...url.searchParams].length || url.hash) {
+      url.username = url.username ? "***" : "";
+      url.password = url.password ? "***" : "";
+      for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, "<redacted>");
+      if (url.hash) url.hash = "#<redacted>";
       return url.toString();
     }
   } catch {
