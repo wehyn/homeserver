@@ -18,5 +18,6 @@ agent/dist/
 .agent-worktrees/
 .review-fixes/
 .playwright-cli/
+.hermes/
 test-results/
 verify.png
