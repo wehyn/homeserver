@@ -18,7 +18,7 @@ repository root:
 ```bash
 set -euo pipefail
 
-export SMOKE_PROJECT="nimbus-release-smoke-$(date +%s)"
+export SMOKE_PROJECT="nimbus-release-smoke-$(date +%s%N)"
 export SMOKE_PORT=10001
 export NIMBUS_BIND_ADDRESS=127.0.0.1
 export NIMBUS_PORT=$SMOKE_PORT
@@ -29,6 +29,17 @@ case "$SMOKE_PROJECT" in
   *) echo "SMOKE_PROJECT must use the nimbus-release-smoke- prefix" >&2; exit 1 ;;
 esac
 
+test -d "$HOME/services"
+docker compose -p "$SMOKE_PROJECT" config --quiet
+
+existing_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$SMOKE_PROJECT")"
+existing_volumes="$(docker volume ls -q --filter "label=com.docker.compose.project=$SMOKE_PROJECT")"
+existing_networks="$(docker network ls -q --filter "label=com.docker.compose.project=$SMOKE_PROJECT")"
+if [ -n "$existing_containers" ] || [ -n "$existing_volumes" ] || [ -n "$existing_networks" ]; then
+  echo "SMOKE_PROJECT already owns Docker resources; choose a new project name" >&2
+  exit 1
+fi
+
 cleanup() {
   exit_code=$?
   if [ "$exit_code" -ne 0 ]; then
@@ -38,9 +49,6 @@ cleanup() {
   exit "$exit_code"
 }
 trap cleanup EXIT
-
-test -d "$HOME/services"
-docker compose -p "$SMOKE_PROJECT" config --quiet
 docker compose -p "$SMOKE_PROJECT" up -d --build
 
 rm -f /tmp/nimbus-smoke-apps.json
@@ -84,26 +92,33 @@ test -s /tmp/nimbus-smoke-apps-after-restart.json
 node --input-type=module -e 'import { readFileSync } from "node:fs"; const data = JSON.parse(readFileSync("/tmp/nimbus-smoke-apps-after-restart.json", "utf8")); if (!data.apps.some((app) => app.id === "release-smoke")) process.exit(1);'
 
 agent_container="$(docker compose -p "$SMOKE_PROJECT" ps -q metrics-agent)"
-if docker inspect "$agent_container" --format '{{json .Mounts}}' | rg -q '/var/run/docker.sock'; then
+test -n "$agent_container"
+if ! mounts="$(docker inspect "$agent_container" --format '{{json .Mounts}}')"; then
+  echo "could not inspect the metrics-agent container" >&2
+  exit 1
+fi
+if printf '%s' "$mounts" | rg -q '/var/run/docker.sock'; then
   echo "default Compose unexpectedly mounted the Docker socket" >&2
   exit 1
 fi
 ```
 
-The `EXIT` trap logs failures and runs `down --volumes --remove-orphans`. This cleanup is safe for
-release smoke validation because the project name is validated to use the unique
-`nimbus-release-smoke-` prefix and the smoke stack owns its throwaway volume. It is deliberately
-project-scoped and must not be adapted to target a production project.
+The project identifier uses Linux nanosecond time and is checked for existing Compose-labeled
+containers, volumes, and networks before the cleanup trap is installed. The `EXIT` trap logs
+failures and runs `down --volumes --remove-orphans`. This cleanup is safe for release smoke
+validation because the project name is validated to use the unique `nimbus-release-smoke-` prefix
+and the smoke stack owns its throwaway resources. It is deliberately project-scoped and must not be
+adapted to target a production project.
 
 ## Optional Docker-socket review
 
-The default stack must remain socket-free. If Docker discovery itself needs review, render the
-default and optional Compose files with an operator-supplied socket path, without committing that
-path or executing the override automatically:
+The default stack must remain socket-free. If Docker discovery itself needs review, run the
+following from the repository root to render the default and optional Compose files with an
+operator-supplied socket path, without committing that path or executing the override automatically:
 
 ```bash
 DOCKER_SOCKET=/var/run/docker.sock \
-  docker compose -p "$SMOKE_PROJECT" -f docker-compose.yml -f docker-compose.docker.yml config
+  docker compose -f docker-compose.yml -f docker-compose.docker.yml config
 ```
 
 Inspect the rendered `metrics-agent` mounts and require the `/var/run/docker.sock` mount to have
