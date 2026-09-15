@@ -50,16 +50,16 @@ The dashboard-performance implementation is complete on main. The following item
 - `tsconfig.json` is strict, uses the `@/*` root alias and bundler resolution, includes all `.ts`/`.tsx` plus `.next/types`, and excludes only `node_modules`. Keep all new client code free of server-only imports.
 - CI has separate lint, unit/domain, agent-build, browser-regression, and build jobs covering the changed surfaces.
 
-### Existing verification snapshot
+### Historical verification snapshot at 2026-09-15
 
-Run results from the review environment:
+Run results from the release-plan baseline at commit `1ef0a1a`:
 
-- `npm test`: **88 passed, 0 failed**. Node emits `MODULE_TYPELESS_PACKAGE_JSON` warnings for test files; these are noise today, not a reason to add `"type": "module"` without evaluating the broader package impact.
+- `npm test`: **115 passed, 0 failed**. Node emits `MODULE_TYPELESS_PACKAGE_JSON` warnings for test files; these are noise today, not a reason to add `"type": "module"` without evaluating the broader package impact.
 - `npm run lint`: **passed** (`tsc --noEmit`).
 - `npm run build:agent`: **passed** (`tsc -p agent/tsconfig.json`).
-- `NODE_ENV=development npm run test:browser`: **6 passed** in 17.7 seconds. This is the valid browser baseline after explicitly overriding the inherited production environment; the supplied plan's original failure was an environment/startup failure, not an application assertion failure.
+- `NODE_ENV=development npm run test:browser`: **12 passed**. This is the valid browser baseline after explicitly overriding the inherited production environment; the supplied plan's original failure was an environment/startup failure, not an application assertion failure.
 - `npm run build`: **passed**. Next reported `/` at 58.5 kB route size and 161 kB First Load JS, with 102 kB shared JS; chunks were 46.3 kB and 54.2 kB. `prebuild` regenerated tracked `public/sw.js` with a revision hash, so a build may create a source diff even when application code is unchanged; check and revert generated changes if unrelated to the implementation.
-- The six browser tests currently cover install metadata/network-first service-worker behavior, responsive Web UI controls, settings focus and semantic toggles, form resynchronization, metrics/process accessibility, and offline/reconnect. The current suite is not yet a performance budget or complete CRUD/health/modal matrix.
+- The twelve browser tests cover install metadata/network-first service-worker behavior, responsive Web UI controls, settings focus and semantic toggles, form resynchronization, metrics/process accessibility, and offline/reconnect. The current suite is not yet a performance budget or complete CRUD/health/modal matrix.
 
 ### Measured source/runtime map
 
