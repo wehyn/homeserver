@@ -9,13 +9,14 @@
     "build:agent": "tsc -p agent/tsconfig.json",
     "start": "next start",
     "lint": "tsc --noEmit",
+    "audit": "npm audit --audit-level=high",
     "test": "node --experimental-strip-types --test agent/*.test.ts lib/*.test.ts",
     "test:browser": "playwright test"
   },
   "dependencies": {
     "framer-motion": "^12.43.0",
     "lucide-react": "^0.468.0",
-    "next": "^15.4.0",
+    "next": "^15.5.25",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -25,7 +26,13 @@
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "eslint": "^9.30.0",
-    "eslint-config-next": "^15.4.0",
+    "eslint-config-next": "^15.5.25",
     "typescript": "^5.8.3"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2",
+    "nanoid": "3.3.19",
+    "postcss": "8.5.28",
+    "sharp": "0.35.4"
   }
 }

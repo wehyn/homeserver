@@ -108,6 +108,7 @@ See [the security guide](docs/security.md) for the complete threat model and dep
 
 ```bash
 npm test
+npm run audit
 npm run lint
 npm run build:agent
 npm run build
@@ -128,6 +129,7 @@ the production build.
 
 - [Architecture](docs/architecture.md) — runtime flow, persistence, deployment, and extension points.
 - [Security](docs/security.md) — threat model, SSRF boundary, Docker access, and privileged operations.
+- [Dependency policy](docs/dependency-policy.md) — lockfile, audit command, and vulnerability thresholds.
 - [Testing](docs/testing.md) — unit, browser, integration, and build coverage.
 - [Contributing](CONTRIBUTING.md) — setup, workflow, validation, and pull-request expectations.
 

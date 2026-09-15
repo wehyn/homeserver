@@ -64,5 +64,6 @@ Human review is required for changes involving:
 - deployment configuration
 - new privileged endpoints
 
-Dependency scanning, lockfile auditing, vulnerability thresholds, and a project license are not
-currently configured. Define those policies before production redistribution.
+Dependency scanning and lockfile auditing are enforced by `npm run audit` and the CI `Dependency
+audit` job. Vulnerability thresholds remain high and critical as documented in the dependency
+policy.
