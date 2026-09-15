@@ -1,10 +1,9 @@
 services:
   nimbus:
     build: .
-    container_name: nimbus-dashboard
     restart: unless-stopped
     ports:
-      - "10000:10000"
+      - "${NIMBUS_BIND_ADDRESS:-0.0.0.0}:${NIMBUS_PORT:-10000}:10000"
     environment:
       PORT: 10000
       DATABASE_PATH: /app/data/nimbus.db
@@ -20,7 +19,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.metrics-agent
-    container_name: nimbus-metrics-agent
     restart: unless-stopped
     # RAPL energy_uj is root-readable on the host; keep its sysfs mounts read-only.
     user: "0:0"

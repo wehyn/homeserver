@@ -51,16 +51,24 @@ cp .env.example .env
 ## Run with Docker Compose
 
 The default Compose stack builds the Nimbus web application and its metrics agent, stores SQLite
-data in the persistent `nimbus-data` volume, and publishes Nimbus on host port `10000`:
+data in the persistent `nimbus-data` volume, and publishes Nimbus on host port `10000`. The
+published binding defaults to `NIMBUS_BIND_ADDRESS=0.0.0.0` and `NIMBUS_PORT=10000`:
 
 ```bash
 docker compose up -d --build
 ```
 
-Open [http://localhost:10000](http://localhost:10000). The default port mapping listens on all host
-interfaces, so use a firewall or a local-only port override when appropriate. The metrics agent
-reads host process and sensor data through read-only mounts. The default stack does not mount the
-Docker socket.
+Open [http://localhost:10000](http://localhost:10000). The default binding listens on all host
+interfaces. Narrow exposure to a local interface, or choose another host port, with:
+
+```bash
+NIMBUS_BIND_ADDRESS=127.0.0.1 NIMBUS_PORT=10001 docker compose up -d --build
+```
+
+Changing the host binding or port does not add authentication. Use a firewall or a reviewed
+reverse proxy with authentication and authorization when appropriate. The metrics agent reads
+host process and sensor data through read-only mounts. The default stack does not mount the Docker
+socket.
 
 Docker discovery is opt-in because Docker socket access is sensitive. Set `DOCKER_SOCKET` to the
 host socket path, then include the optional override:
@@ -83,6 +91,8 @@ to the host.
 | `MEMORY_AGENT_TOKEN` | Bearer token shared by Nimbus and the process/hardware agent. |
 | `DOCKER_AGENT_TOKEN` | Optional bearer token for Docker discovery; falls back to the memory-agent token. |
 | `DOCKER_SOCKET` | Host Docker socket path used only with `docker-compose.docker.yml`. |
+| `NIMBUS_BIND_ADDRESS` | Host interface for the web port; defaults to `0.0.0.0`. |
+| `NIMBUS_PORT` | Published host port for Nimbus; defaults to `10000`. |
 
 Compose supplies the internal agent URLs automatically. Separate-agent deployments can also set
 `MEMORY_AGENT_URL`, `HARDWARE_AGENT_URL`, and `DOCKER_AGENT_URL` to the appropriate server URLs.

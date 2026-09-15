@@ -67,8 +67,11 @@ health data every thirty seconds; system detail modals refresh process data ever
 Compose stores the database at `/app/data/nimbus.db` in the persistent `nimbus-data` named volume.
 
 Next.js is built as a standalone server for the container runtime. The default Compose file does
-not mount the Docker socket. Optional Docker/Compose discovery must remain read-only unless a
-separately reviewed control path is introduced.
+not mount the Docker socket. Compose uses project-scoped container names derived from the Compose
+project, so separate deployments can coexist without fixed container-name collisions. The web
+host binding is controlled by `NIMBUS_BIND_ADDRESS` (default `0.0.0.0`) and `NIMBUS_PORT` (default
+`10000`); these affect only the published host port. Optional Docker/Compose discovery must remain
+read-only unless a separately reviewed control path is introduced.
 
 `apps.is_favorite` is retained as an inert legacy SQLite column for compatibility with existing
 files and newly initialized databases. It is not selected into `ManagedApp`, accepted as an API
