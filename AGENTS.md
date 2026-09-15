@@ -48,7 +48,9 @@
 - For TypeScript or runtime-affecting changes, run `npm test`, `npm run lint`, and `npm run build`.
 - Stop any running `next dev` server before `npm run build`, including one started outside the
   agent shell, then restart it afterward if it was running.
-- Browser smoke coverage should include desktop and mobile launcher layouts, theme switching,
+- Next.js commands share `.next/` state in this worktree; run `next dev`, browser tests, and builds
+  serially rather than concurrently.
+- Browser smoke coverage should include desktop and mobile launcher layouts,
   application management, add/edit/delete flows, modal focus and Escape behavior, system detail
   dialogs, and health refresh.
 - If `node` or `npm` cannot be resolved, check the user shell PATH before treating Node.js as

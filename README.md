@@ -51,16 +51,24 @@ cp .env.example .env
 ## Run with Docker Compose
 
 The default Compose stack builds the Nimbus web application and its metrics agent, stores SQLite
-data in the persistent `nimbus-data` volume, and publishes Nimbus on host port `10000`:
+data in the persistent `nimbus-data` volume, and publishes Nimbus on host port `10000`. The
+published binding defaults to `NIMBUS_BIND_ADDRESS=0.0.0.0` and `NIMBUS_PORT=10000`:
 
 ```bash
 docker compose up -d --build
 ```
 
-Open [http://localhost:10000](http://localhost:10000). The default port mapping listens on all host
-interfaces, so use a firewall or a local-only port override when appropriate. The metrics agent
-reads host process and sensor data through read-only mounts. The default stack does not mount the
-Docker socket.
+Open [http://localhost:10000](http://localhost:10000). The default binding listens on all host
+interfaces. Narrow exposure to a local interface, or choose another host port, with:
+
+```bash
+NIMBUS_BIND_ADDRESS=127.0.0.1 NIMBUS_PORT=10001 docker compose up -d --build
+```
+
+Changing the host binding or port does not add authentication. Use a firewall or a reviewed
+reverse proxy with authentication and authorization when appropriate. The metrics agent reads
+host process and sensor data through read-only mounts. The default stack does not mount the Docker
+socket.
 
 Docker discovery is opt-in because Docker socket access is sensitive. Set `DOCKER_SOCKET` to the
 host socket path, then include the optional override:
@@ -75,6 +83,8 @@ When set, `MEMORY_AGENT_TOKEN` protects process and hardware agent requests, whi
 when the agent network is not otherwise isolated. The Compose files do not publish the agent port
 to the host.
 
+For supported disposable deployment validation, see the [Docker release smoke runbook](docs/release-smoke.md).
+
 ## Configuration
 
 | Variable | Purpose |
@@ -83,6 +93,8 @@ to the host.
 | `MEMORY_AGENT_TOKEN` | Bearer token shared by Nimbus and the process/hardware agent. |
 | `DOCKER_AGENT_TOKEN` | Optional bearer token for Docker discovery; falls back to the memory-agent token. |
 | `DOCKER_SOCKET` | Host Docker socket path used only with `docker-compose.docker.yml`. |
+| `NIMBUS_BIND_ADDRESS` | Host interface for the web port; defaults to `0.0.0.0`. |
+| `NIMBUS_PORT` | Published host port for Nimbus; defaults to `10000`. |
 
 Compose supplies the internal agent URLs automatically. Separate-agent deployments can also set
 `MEMORY_AGENT_URL`, `HARDWARE_AGENT_URL`, and `DOCKER_AGENT_URL` to the appropriate server URLs.
@@ -108,6 +120,7 @@ See [the security guide](docs/security.md) for the complete threat model and dep
 
 ```bash
 npm test
+npm run audit
 npm run lint
 npm run build:agent
 npm run build
@@ -128,11 +141,11 @@ the production build.
 
 - [Architecture](docs/architecture.md) — runtime flow, persistence, deployment, and extension points.
 - [Security](docs/security.md) — threat model, SSRF boundary, Docker access, and privileged operations.
+- [Dependency policy](docs/dependency-policy.md) — lockfile, audit command, and vulnerability thresholds.
+- [Release smoke](docs/release-smoke.md) — disposable Docker deployment and persistence checks.
 - [Testing](docs/testing.md) — unit, browser, integration, and build coverage.
 - [Contributing](CONTRIBUTING.md) — setup, workflow, validation, and pull-request expectations.
 
 ## Project status and license
 
-Nimbus is still evolving toward its first formal open-source release. A project license has not
-yet been selected; do not assume that the source may be redistributed until an OSI-approved license
-is added.
+Nimbus is an early-stage 0.1.0 project for a trusted home LAN or VPN. It is distributed under the MIT License; see [LICENSE](LICENSE) for the full text.

@@ -7,6 +7,9 @@ Coverage includes discovery, metrics sampling, URL handling, request validation,
 mapping, health-target construction, legacy SQLite compatibility, and short-TTL/concurrency
 helpers. `npm run build:agent` separately compiles the optional metrics agent.
 
+`npm run audit` checks the dependency tree at the high/critical advisory threshold and must pass
+before release verification.
+
 `npm run lint` runs `tsc --noEmit`. Despite the script name, no ESLint configuration is currently
 present.
 
@@ -15,6 +18,7 @@ present.
 Run the standard verification set with:
 
 ```bash
+npm run audit
 npm test
 npm run lint
 npm run build:agent
@@ -80,6 +84,10 @@ checks. Docker discovery tests also verify container inspection limits, cancella
 caps, and partial-state warnings.
 The performance smoke suite does not use `networkidle` because dashboard polling remains active.
 
+The supported deployment smoke check is documented in [docs/release-smoke.md](release-smoke.md). It
+must run with a unique throwaway Compose project and volume, never the production project, volume,
+or `DATABASE_PATH`.
+
 Process snapshots use a contract-valid fixture with explicit `totalCount`, `returnedCount`,
 `unreadableCount`, and `policyOmittedCount`; API validation rejects oversized arrays, inconsistent
 counts, overlong strings, and responses above 512 KiB. Agent fixtures also exercise the 1,024-entry
@@ -87,6 +95,8 @@ scan bound, 256-row response cap, bounded concurrent reads, and cancellation sig
 
 Playwright browser tests need Chromium (`npx playwright install --with-deps chromium`). CI sets
 Node.js 24 and runs the same isolated development-server configuration.
+
+The domain suite contains legacy-database tests that start temporary Next servers, and the browser suite starts another Next server. Run these commands serially in one worktree: concurrent Next processes can write the shared .next/ directory and produce missing vendor chunks or cross-test database results. CI jobs are isolated and may run in parallel on separate workers.
 
 ## Build discipline
 
