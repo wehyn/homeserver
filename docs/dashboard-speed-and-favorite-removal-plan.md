@@ -39,9 +39,9 @@ The dashboard-performance implementation is complete on main. The following item
 | Browser startup and database isolation | Complete | Playwright owns a fresh development server and isolated database. |
 | Domain and metrics-agent CI gates | Complete | CI runs npm test and npm run build:agent. |
 | Structural browser performance checks | Complete | Request fan-out and viewport boundaries are checked without machine-specific timing budgets. |
-| Open-source license | Release task | License metadata is tracked in the release-readiness work. |
-| Dependency audit | Release task | The high/critical audit policy is enforced by the release-readiness work. |
-| Docker deployment smoke test | Release task | The disposable procedure is documented in docs/release-smoke.md. |
+| Open-source license | Release task | MIT is selected, but the exact copyright-holder line still requires owner confirmation before LICENSE is created. |
+| Dependency audit | Complete | npm run audit passed with zero vulnerabilities; the high/critical policy is enforced by the CI Dependency audit job. |
+| Docker deployment smoke test | Complete | docs/release-smoke.md passed on a unique throwaway project with route, persistence, socket, and cleanup checks. |
 
 ### Historical review snapshot
 
@@ -603,21 +603,23 @@ Run the browser/trace matrix after stopping any `next dev` process before produc
 - **Browser setup:** a passing build is not browser evidence. Keep startup/environment errors separate from product failures and test with a clean dev/production lifecycle.
 - **Generated artifacts:** prebuild changes `public/sw.js`; `.next`, databases, agent output, Playwright output, and test results are runtime artifacts, not implementation files.
 
-## 5. Open decisions / approval checklist
+## 5. Resolved decisions and remaining approval checklist
 
-Before implementation, obtain explicit answers for:
+The release-readiness work resolved the compatibility, bounded-runtime, CI, and deployment decisions
+below. Performance-budget and product-choice questions remain open when no controlled measurement or
+explicit product decision exists.
 
-1. Retain the legacy `is_favorite` column inert for the first release? **Recommended: yes.**
+1. Retain the legacy `is_favorite` column inert for the first release? **Resolved: yes; no destructive schema migration is used.**
 2. Choose server-rendered initial data, a bootstrap response, or no architecture change after baseline measurement.
-3. Set the primary performance target and measurement device/network; establish budgets from baseline rather than guessing.
+3. Set the primary performance target and measurement device/network; establish budgets from baseline rather than guessing. **Unmeasured and intentionally open; this release makes no numeric performance claim.**
 4. Are all launcher icons required immediately, or may below-fold icons be deferred?
-5. May process detail responses cap rows/top-N, or must every readable row remain available via accessible virtualization?
-6. What activity age/max-row retention policy is acceptable?
-7. Should CI add `npm test` and `npm run build:agent` gates and a structural performance smoke test?
-8. Does the supported deployment run one Next process/SQLite writer, and may in-process caches be used? If multiple replicas are possible, in-process TTLs/coalescing are only local optimizations and need a different shared-cache policy.
-9. Is there a release-note/changelog convention to update?
-10. Should stale clients submitting `isFavorite` be tolerated and stripped (recommended for rolling compatibility) or rejected with a deliberate 400?
-11. Should fresh databases retain the inert `is_favorite` column, or should the application support both fresh schemas without it and legacy schemas with it? The write SQL and rollback policy depend on this answer.
+5. May process detail responses cap rows/top-N, or must every readable row remain available via accessible virtualization? **Resolved for this release: keep the implemented bounded response with explicit returned, unreadable, and policy-omitted counts.**
+6. What activity age/max-row retention policy is acceptable? **Resolved for this release: retain the current 90-day and 1,000-row bounds; do not change metric-history retention here.**
+7. Should CI add `npm test` and `npm run build:agent` gates and a structural performance smoke test? **Resolved: yes; the domain-tests job runs the domain suite and agent build, and the browser suite checks structural boundaries.**
+8. Does the supported deployment run one Next process/SQLite writer, and may in-process caches be used? **Resolved for this release: the supported deployment is one Next process with one SQLite writer; multi-replica coordination is not claimed.**
+9. Is there a release-note/changelog convention to update? **Resolved: no established changelog exists; release evidence belongs in the release record.**
+10. Should stale clients submitting `isFavorite` be tolerated and stripped (recommended for rolling compatibility) or rejected with a deliberate 400? **Resolved: tolerate and strip both stale Favorites spellings for rolling compatibility.**
+11. Should fresh databases retain the inert `is_favorite` column, or should the application support both fresh schemas without it and legacy schemas with it? **Resolved: retain the inert column in fresh and legacy schemas; no destructive migration is used.**
 
 ## 6. Suggested execution order and commit boundaries
 
