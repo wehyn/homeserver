@@ -148,6 +148,4 @@ the production build.
 
 ## Project status and license
 
-Nimbus is still evolving toward its first formal open-source release. A project license has not
-yet been selected; do not assume that the source may be redistributed until an OSI-approved license
-is added.
+Nimbus is an early-stage 0.1.0 project for a trusted home LAN or VPN. It is distributed under the MIT License; see [LICENSE](LICENSE) for the full text.
