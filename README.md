@@ -83,6 +83,8 @@ When set, `MEMORY_AGENT_TOKEN` protects process and hardware agent requests, whi
 when the agent network is not otherwise isolated. The Compose files do not publish the agent port
 to the host.
 
+For supported disposable deployment validation, see the [Docker release smoke runbook](docs/release-smoke.md).
+
 ## Configuration
 
 | Variable | Purpose |
@@ -140,6 +142,7 @@ the production build.
 - [Architecture](docs/architecture.md) — runtime flow, persistence, deployment, and extension points.
 - [Security](docs/security.md) — threat model, SSRF boundary, Docker access, and privileged operations.
 - [Dependency policy](docs/dependency-policy.md) — lockfile, audit command, and vulnerability thresholds.
+- [Release smoke](docs/release-smoke.md) — disposable Docker deployment and persistence checks.
 - [Testing](docs/testing.md) — unit, browser, integration, and build coverage.
 - [Contributing](CONTRIBUTING.md) — setup, workflow, validation, and pull-request expectations.
 

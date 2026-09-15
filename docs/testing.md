@@ -80,6 +80,10 @@ checks. Docker discovery tests also verify container inspection limits, cancella
 caps, and partial-state warnings.
 The performance smoke suite does not use `networkidle` because dashboard polling remains active.
 
+The supported deployment smoke check is documented in [docs/release-smoke.md](release-smoke.md). It
+must run with a unique throwaway Compose project and volume, never the production project, volume,
+or `DATABASE_PATH`.
+
 Process snapshots use a contract-valid fixture with explicit `totalCount`, `returnedCount`,
 `unreadableCount`, and `policyOmittedCount`; API validation rejects oversized arrays, inconsistent
 counts, overlong strings, and responses above 512 KiB. Agent fixtures also exercise the 1,024-entry

@@ -41,6 +41,14 @@ controls should use a narrowly scoped server-side adapter or local agent, requir
 validate every operation, and record mutation activity. Any container-control feature requires
 human security review before implementation or deployment.
 
+## Deployment review
+
+The default Compose stack publishes the dashboard on NIMBUS_BIND_ADDRESS defaulting to 0.0.0.0 and NIMBUS_PORT defaulting to 10000, and has no built-in authentication or authorization. Bind it to an appropriate interface or place it behind authentication, authorization, rate limiting, and a reviewed reverse proxy before exposing it beyond a trusted LAN or VPN.
+
+The metrics agent runs as 0:0 because the host RAPL and sensor mounts may require root-readable access. Its /proc, /sys, /etc/passwd, and service-root mounts are read-only. The default stack does not mount /var/run/docker.sock; the optional Docker override is read-only but still grants access to a powerful host control interface and requires human review.
+
+Run docs/release-smoke.md with a unique Compose project and throwaway volume. Never use the production project or production DATABASE_PATH for release validation.
+
 ## Privileged operations
 
 Do not add arbitrary shell execution, terminal access, filesystem administration, package

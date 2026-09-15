@@ -11,6 +11,7 @@ Please read:
 - [`docs/architecture.md`](docs/architecture.md) for the runtime structure and persistence rules.
 - [`docs/security.md`](docs/security.md) for SSRF, Docker, telemetry, and deployment constraints.
 - [`docs/dependency-policy.md`](docs/dependency-policy.md) for lockfile and dependency-audit requirements.
+- [`docs/release-smoke.md`](docs/release-smoke.md) for disposable Docker deployment smoke coverage.
 - [`docs/testing.md`](docs/testing.md) for the complete verification matrix.
 
 For a bug or feature that changes behavior, open an issue first when practical. Small, focused fixes
