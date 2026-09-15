@@ -78,7 +78,10 @@ test("release smoke documentation is isolated, persistent, and socket-aware", ()
   const cleanupEnd = script.indexOf("\n}\ntrap cleanup EXIT", cleanupStart);
   assert.ok(cleanupStart >= 0);
   assert.ok(cleanupEnd > cleanupStart);
+  assert.ok(collisionStart < cleanupStart);
+  assert.ok(collisionEnd < cleanupStart);
   const cleanupBlock = script.slice(cleanupStart, cleanupEnd);
+  assert.match(cleanupBlock, /cleanup\(\) \{\n  exit_code=\$\?/);
   assert.match(cleanupBlock, /docker compose -p "\$SMOKE_PROJECT" down --volumes --remove-orphans \|\| true/);
   assert.match(cleanupBlock, /exit "\$exit_code"/);
 
