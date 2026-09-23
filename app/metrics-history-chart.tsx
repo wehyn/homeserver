@@ -89,7 +89,7 @@ export default function MetricsHistoryChart({ metric }: { metric: ChartMetric })
           <g aria-hidden="true">
             {hasPoints && <line x1={CHART_PLOT.left} x2={CHART_WIDTH - CHART_PLOT.right} y1={CHART_HEIGHT - CHART_PLOT.bottom} y2={CHART_HEIGHT - CHART_PLOT.bottom} className="metrics-chart-axis" />}
             {hasPoints && <polygon points={`${chart.points[0].x},${CHART_HEIGHT - CHART_PLOT.bottom} ${chart.points.map((point) => `${point.x},${point.y}`).join(" ")} ${chart.points[chart.points.length - 1].x},${CHART_HEIGHT - CHART_PLOT.bottom}`} fill={color} className="metrics-chart-area" />}
-            {hasPoints && <polyline points={chart.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="metrics-chart-line" />}
+            {hasPoints && <polyline points={chart.points.map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={color} strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" className="metrics-chart-line" />}
           </g>
         </svg>
         {loading && <span className="metrics-history-loading"><RefreshCw size={14} className="spin" /> Updating</span>}
