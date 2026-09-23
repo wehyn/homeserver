@@ -24,7 +24,7 @@ test("keeps known and custom icons ahead of the proxy", () => {
 test("keeps a built-in app favicon ahead of its branded fallback", () => {
   assert.deepEqual(getIconSources({ ...app, id: "immich", name: "Immich" }), [
     "/api/icon?id=immich",
-    "https://cdn.simpleicons.org/immich",
+    "/icons/immich-logo.svg",
   ]);
 });
 

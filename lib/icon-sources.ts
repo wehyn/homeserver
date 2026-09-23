@@ -2,7 +2,7 @@ import type { ManagedApp } from "./types";
 
 const craftyIconUrl = "/icons/crafty-controller.ico";
 const brandIconUrls: Record<string, string> = {
-  immich: "https://cdn.simpleicons.org/immich",
+  immich: "/icons/immich-logo.svg",
   pihole: "https://cdn.simpleicons.org/pihole",
 };
 const defaultBrandIconUrls = new Set(Object.values(brandIconUrls));
