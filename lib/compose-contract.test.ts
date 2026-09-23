@@ -8,6 +8,7 @@ const root = process.cwd();
 test("default Compose is project-scoped and keeps host binding configurable", () => {
   const compose = readFileSync(join(root, "docker-compose.yml"), "utf8");
   assert.match(compose, /- "\$\{NIMBUS_BIND_ADDRESS:-0\.0\.0\.0\}:\$\{NIMBUS_PORT:-10000\}:10000"/);
+  assert.match(compose, /\n      HOSTNAME: 0\.0\.0\.0\n/);
   assert.doesNotMatch(compose, /container_name:/);
   assert.doesNotMatch(compose, /var\/run\/docker\.sock/);
 });
