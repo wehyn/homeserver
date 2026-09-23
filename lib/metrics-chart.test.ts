@@ -113,6 +113,7 @@ test("formats chart readings and summary as a complete text alternative", () => 
     "10:00 · 12.5%",
     "10:00 · 37.0%",
   ]);
-  assert.equal(formatChartSummary(chart.summary), "Latest 37.0%, low 12.5%, high 37.0%.");
+  assert.equal(formatChartSummary(chart.summary), "Current value 37.0%; observed values span 12.5% to 37.0%.");
+  assert.doesNotMatch(formatChartSummary(chart.summary), /latest|low|high|range/i);
   assert.equal(formatChartSummary(null), "No readings available.");
 });

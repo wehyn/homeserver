@@ -138,7 +138,7 @@ export function formatChartReading(point: ChartPoint, formatTime = formatChartTi
 
 export function formatChartSummary(summary: ChartSummary | null) {
   return summary
-    ? `Latest ${formatChartPercent(summary.latest)}, low ${formatChartPercent(summary.minimum)}, high ${formatChartPercent(summary.maximum)}.`
+    ? `Current value ${formatChartPercent(summary.latest)}; observed values span ${formatChartPercent(summary.minimum)} to ${formatChartPercent(summary.maximum)}.`
     : "No readings available.";
 }
 
