@@ -1,10 +1,11 @@
 import type { ManagedApp } from "./types";
 
 const craftyIconUrl = "/icons/crafty-controller.ico";
-const defaultBrandIconUrls = new Set([
-  "https://cdn.simpleicons.org/immich",
-  "https://cdn.simpleicons.org/pihole",
-]);
+const brandIconUrls: Record<string, string> = {
+  immich: "/icons/immich-logo.svg",
+  pihole: "https://cdn.simpleicons.org/pihole",
+};
+const defaultBrandIconUrls = new Set(Object.values(brandIconUrls));
 const legacyColorizedIconUrls: Record<string, string> = {
   "https://cdn.simpleicons.org/minecraft/65E6A5": "https://cdn.simpleicons.org/minecraft",
   "https://cdn.simpleicons.org/nextcloud/8BE9FD": "https://cdn.simpleicons.org/nextcloud",
@@ -21,7 +22,8 @@ export function getIconSources(app: Pick<ManagedApp, "id" | "name" | "url" | "ic
   const knownIcon = getKnownIconUrl(app);
   const customIcon = getCustomIconUrl(app);
   const favicon = getFaviconUrls(app.url, app.id);
-  return [knownIcon, customIcon, ...favicon].filter(Boolean);
+  const brandFallback = getBrandFallbackIconUrl(app);
+  return [knownIcon, customIcon, ...favicon, brandFallback].filter(Boolean);
 }
 
 function getFaviconUrls(url: string, appId?: string) {
@@ -58,4 +60,10 @@ function isFaviconFirstApp(app: Pick<ManagedApp, "id" | "name">) {
   const normalizedName = app.name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
   return normalizedId === "immich" || normalizedName === "immich"
     || normalizedId === "pihole" || normalizedName === "pihole";
+}
+
+function getBrandFallbackIconUrl(app: Pick<ManagedApp, "id" | "name">) {
+  const normalizedId = app.id.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  const normalizedName = app.name.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return brandIconUrls[normalizedId] || brandIconUrls[normalizedName] || "";
 }

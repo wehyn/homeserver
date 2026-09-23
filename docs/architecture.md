@@ -46,6 +46,8 @@ telemetry uses local sysfs data and can fall back to an optional hardware agent 
 `online`, `degraded`, or `offline`. The client refreshes overview data every five seconds and
 health data every thirty seconds; system detail modals refresh process data every five seconds.
 
+Metric history charts are mounted only inside processor and memory detail modals. Opening a chart performs one no-store history read; the Live selection reads the rolling five-minute window again every 30 seconds while the modal remains open, while 15m and 30m read once when selected. Unmounting the modal clears the timer and aborts any in-flight chart request. History samples are still recorded by overview sampling at the existing one-minute cadence and are retained for 30 days.
+
 ## Main components
 
 - `app/page.tsx`: launcher state, polling, application mutations, and modal orchestration.

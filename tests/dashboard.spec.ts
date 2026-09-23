@@ -52,7 +52,7 @@ const historyPoints = [
   { timestamp: "2026-09-02T11:58:00.000Z", cpu: 13.1, memory: 38.2, storage: 42, temperatureC: null, powerWatts: null },
 ];
 
-async function installDashboardFixtures(page: import("@playwright/test").Page, fixtureApps = apps) {
+async function installDashboardFixtures(page: import("@playwright/test").Page, fixtureApps = apps, historyRequests: string[] = []) {
   await page.route("**/api/apps", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: { apps: fixtureApps, docker: { available: false, status: "unavailable", warnings: [], updatedAt: null } } });
     return route.fulfill({ json: { app: fixtureApps[0] } });
@@ -60,7 +60,12 @@ async function installDashboardFixtures(page: import("@playwright/test").Page, f
   await page.route("**/api/activity", (route) => route.fulfill({ json: { activities: [] } }));
   await page.route("**/api/overview", (route) => route.fulfill({ json: overview }));
   await page.route("**/api/health**", (route) => route.fulfill({ json: { status: "online", latency: 20, statusCode: 200 } }));
-  await page.route("**/api/metrics/history**", (route) => route.fulfill({ json: { minutes: 5, points: historyPoints } }));
+  await page.route("**/api/metrics/history**", (route) => {
+    const requestUrl = route.request().url();
+    historyRequests.push(requestUrl);
+    const minutes = Number(new URL(requestUrl).searchParams.get("minutes") ?? 5);
+    return route.fulfill({ json: { minutes, points: historyPoints } });
+  });
   await page.route("**/api/processor/processes", (route) => route.fulfill({ json: {
     updatedAt: "2026-09-02T12:00:00.000Z",
     cpuPercent: 12.5,
@@ -162,19 +167,99 @@ test.describe("dashboard browser regressions", () => {
     await expect(page.locator("#app-second-url-port")).toHaveValue("9090");
   });
 
+  test("loads metric history only in the modal and polls only in Live mode", async ({ page }) => {
+    const historyRequests: string[] = [];
+    await page.clock.install({ time: new Date("2026-09-02T12:00:00.000Z") });
+    await installDashboardFixtures(page, apps, historyRequests);
+    await page.goto("/");
+    expect(historyRequests).toHaveLength(0);
+
+    await page.getByRole("button", { name: "View cpu details" }).click();
+    const chart = page.getByRole("dialog", { name: "Processor" }).locator(".metrics-history-card");
+    await expect.poll(() => historyRequests.length).toBe(1);
+    expect(new URL(historyRequests[0]).searchParams.get("minutes")).toBe("5");
+
+    await page.clock.fastForward(30_000);
+    await expect.poll(() => historyRequests.length).toBe(2);
+
+    await chart.getByRole("button", { name: "15m", exact: true }).click();
+    await expect.poll(() => historyRequests.length).toBe(3);
+    expect(new URL(historyRequests[2]).searchParams.get("minutes")).toBe("15");
+    await page.clock.fastForward(30_000);
+    expect(historyRequests).toHaveLength(3);
+
+    await chart.getByRole("button", { name: "30m", exact: true }).click();
+    await expect.poll(() => historyRequests.length).toBe(4);
+    expect(new URL(historyRequests[3]).searchParams.get("minutes")).toBe("30");
+    await page.clock.fastForward(30_000);
+    expect(historyRequests).toHaveLength(4);
+
+    await chart.getByRole("button", { name: "Live", exact: true }).click();
+    await expect.poll(() => historyRequests.length).toBe(5);
+    expect(new URL(historyRequests[4]).searchParams.get("minutes")).toBe("5");
+    await page.clock.fastForward(30_000);
+    await expect.poll(() => historyRequests.length).toBe(6);
+  });
+
+  test("stops metric history polling when the detail modal closes", async ({ page }) => {
+    const historyRequests: string[] = [];
+    await page.clock.install({ time: new Date("2026-09-02T12:00:00.000Z") });
+    await installDashboardFixtures(page, apps, historyRequests);
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "View cpu details" }).click();
+    await expect.poll(() => historyRequests.length).toBe(1);
+    await page.getByRole("button", { name: "Close processor details" }).click();
+    await expect(page.locator("body > div")).not.toHaveAttribute("inert", "");
+    await page.evaluate(() => new Promise<void>((resolve) => queueMicrotask(resolve)));
+    await page.clock.runFor(1_000);
+    await expect(page.getByRole("dialog", { name: "Processor" })).toHaveCount(0);
+
+    await page.clock.fastForward(30_000);
+    expect(historyRequests).toHaveLength(1);
+  });
+
   test("renders metrics text alternatives and accessible process sorting", async ({ page }) => {
     await installDashboardFixtures(page);
     await page.goto("/");
     await page.getByRole("button", { name: "View cpu details" }).click();
     const dialog = page.getByRole("dialog", { name: "Processor" });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("img", { name: /CPU usage over/ })).toBeVisible();
-    await expect(dialog.getByRole("table", { name: /CPU readings/ })).toBeVisible();
+    const assertMetricsChartContract = async (chart: import("@playwright/test").Locator, name: RegExp, current: string) => {
+      await expect(chart.getByRole("img", { name })).toBeVisible();
+      await expect(chart.locator(".metrics-history-current")).toHaveText(current);
+      await expect(chart.locator(".metrics-chart-area")).toHaveCSS("opacity", "0.14");
+      await expect(chart.getByRole("button", { name: "Live", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(chart.getByRole("button", { name: "15m", exact: true })).toHaveAttribute("aria-pressed", "false");
+      await expect(chart.getByRole("button", { name: "30m", exact: true })).toHaveAttribute("aria-pressed", "false");
+      await expect(chart.getByRole("button", { name: "5m", exact: true })).toHaveCount(0);
+      await expect(chart.locator(".metrics-chart-label")).toHaveCount(3);
+      await expect(chart.locator(".metrics-chart-point")).toHaveCount(0);
+      await expect(chart.locator(".metrics-chart-point-current")).toHaveCount(0);
+      await expect(chart.locator(".metrics-chart-point-current-value")).toHaveCount(0);
+      await expect(chart.locator(".metrics-chart-time-label")).toHaveCount(0);
+      await expect(chart.getByText(/\b\d+\s+samples?\b/i)).toHaveCount(0);
+      for (const removedCopy of ["System history", "Latest", "Low", "High", "View readings", "Stored locally", "30-day retention"]) {
+        await expect(chart.getByText(removedCopy, { exact: true })).toHaveCount(0);
+      }
+      await expect(chart.getByRole("table")).toHaveCount(0);
+    };
+    await assertMetricsChartContract(dialog.locator(".metrics-history-card"), /CPU usage live over/, "13.1%");
     await expect(dialog.getByRole("columnheader", { name: /CPU %/ })).toHaveAttribute("aria-sort", "descending");
     await expect(dialog.getByRole("button", { name: /Sort by CPU %/ })).toBeVisible();
     await expect(dialog.getByText(/2 unavailable/)).toBeVisible();
     await expect(dialog.getByText("1 / 3").last()).toBeVisible();
     await page.getByRole("button", { name: "Close processor details" }).click();
+
+    await page.getByRole("button", { name: "View memory details" }).click();
+    const memoryDialog = page.getByRole("dialog", { name: "Memory" });
+    await expect(memoryDialog).toBeVisible();
+    await assertMetricsChartContract(memoryDialog.locator(".metrics-history-card"), /Memory usage live over/, "38.2%");
+    for (const width of [390, 320]) {
+      await page.setViewportSize({ width, height: 844 });
+      await expect(memoryDialog.locator(".metrics-history-card")).toBeVisible();
+      await expect(page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).resolves.toBeTruthy();
+    }
   });
 
   test("marks the launcher and app routes as structural performance boundaries", async ({ page }) => {
