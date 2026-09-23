@@ -59,9 +59,15 @@ mobile layouts, including:
 - application add, edit, visibility, and delete flows
 - settings modal focus, Escape, and focus restoration
 - processor and memory detail dialogs
-- CPU and memory history charts with 5m, 15m, and 30m range switching
+- CPU and memory history charts with Live, 15m, and 30m range switching
+- Live selected by default as a rolling five-minute window; only Live polls while the detail modal is open
+- 15m and 30m fetch once when selected; no history request occurs while the detail modal is closed
 - flat, low-variance, high, changing, empty, loading, error, and one-sample chart fixtures
-- chart time labels, latest/low/high values, point details, and the expandable readings table
+- chart title and current reading without the System history eyebrow
+- neutral SVG text alternative without Latest, Low, High, or range labels
+- line and low-opacity area fill with y-axis percentages and horizontal gridlines
+- no point markers, endpoint emphasis, in-chart percentage label, or x-axis time labels
+- no View readings disclosure, readings table, sample-count footer, storage copy, or retention copy
 - stale history responses being aborted or ignored after range changes and refreshes
 - history chart layout at desktop width and narrow 390px/320px system-detail modals
 - sortable process tables and refresh behavior
@@ -75,6 +81,9 @@ mobile layouts, including:
 
 The visibility regression test changes the browser's visibility state explicitly: hidden tabs do not
 start another health request, and the next visible transition triggers a refresh.
+
+Removing the chart's storage and retention footer copy does not change the backend metric policy: the
+30-day retention behavior remains enforced by persistence and database sampling code.
 
 The performance smoke suite asserts structural boundaries—one initial app request, no unexpected
 health fan-out, and no page-level horizontal overflow—rather than machine-specific timing budgets.
